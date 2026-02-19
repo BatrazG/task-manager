@@ -6,6 +6,9 @@ import (
 	"strconv"
 	"sync"
 
+	// "task-manager/internal/middleware"
+	appMiddleware "task-manager/internal/middleware" // [CHANGE] подключаем middleware-пакет (алиас, чтобы не путать с chi/middleware)
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -22,12 +25,8 @@ type Task struct {
 //
 // Здесь лежит всё, что относится к HTTP:
 // роуты, парсинг JSON, выставление заголовков, коды ответов, middleware.
-//
-// Мы большую часть просто копируем из старого кода [CHANGE]
-// Изменения я буду почать в комментариях
-// Если что-то будет непонятно - спрашивайте
-// Напоминаю: самый глупый вопрос - это незаданный
-// [CHANGE] Раньше состояние было в package-level переменных в main.
+
+// Раньше состояние было в package-level переменных в main.
 //
 //	Теперь это поля структуры Handler, чтобы:
 //	- отделить HTTP-слой от запуска приложения (cmd/.../main.go);
@@ -42,9 +41,8 @@ type Handler struct {
 
 // NewHandler создаёт Handler и загружает данные из хранилища.
 //
-// [CHANGE] Логика загрузки/инициализации переехала из main в конструктор,
-//
-//	чтобы main оставался "только запуском", как требует структура задания.
+//	 Логика загрузки/инициализации переехала из main в конструктор,
+//		чтобы main оставался "только запуском"
 func NewHandler(store *TaskStore) *Handler {
 	h := &Handler{
 		store:  store,
@@ -56,7 +54,7 @@ func NewHandler(store *TaskStore) *Handler {
 	if err == nil {
 		h.tasks = loaded
 		h.nextID = calcNextID(h.tasks)
-		// [CHANGE] В исходнике при ошибке чтения печаталось предупреждение.
+		//  В исходнике при ошибке чтения печаталось предупреждение.
 		//         Здесь намеренно "молча" стартуем с пустым списком при ошибке.
 		//         Почему: на предыдущих парах мы с вами оговаривали моменты, когда общаемся с клиентом,
 		//         когда передаем ошибку или лог выше
@@ -77,6 +75,10 @@ func (h *Handler) Router() http.Handler {
 	r := chi.NewRouter()
 
 	r.Route("/api/v1/tasks", func(r chi.Router) {
+		// [CHANGE] JSONHeaderMiddleware вешаем на весь tasks API,
+		// чтобы убрать дублирующиеся Content-Type из хендлеров.
+		r.Use(appMiddleware.JSONHeaderMiddleware)
+
 		// MVP: GET / (список), POST / (создание)
 		r.Get("/", h.getAllTasks)
 		r.Post("/", h.createTask)
@@ -87,18 +89,20 @@ func (h *Handler) Router() http.Handler {
 		// PUT: обновление
 		r.Put("/{id}", h.updateTask)
 
-		// MVP: DELETE /{id}; Advanced: применяем AdminOnly только к DELETE.
-		r.With(AdminOnly).Delete("/{id}", h.deleteTask)
+		// [CHANGE] Вместо AdminOnly используем BasicAuthMiddleware только на DELETE.
+		r.With(appMiddleware.BasicAuthMiddleware).Delete("/{id}", h.deleteTask)
+		//r.With(AdminOnly).Delete("/{id}", h.deleteTask)
 	})
 
 	return r
 }
 
+// Убираем, так как заменили на BasicAuth из middleware
 // AdminOnly — middleware: проверяет доступ по заголовку.
 //
 // Работает как обёртка над handler.
 // При неверном ключе отвечает 403 и не передаёт управление дальше.
-func AdminOnly(next http.Handler) http.Handler {
+/*func AdminOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// В будущем заменить на реальную проверку админа.
 		// Пока оставим как заглушку.
@@ -108,7 +112,7 @@ func AdminOnly(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
+}*/
 
 // getAllTasks обрабатывает GET /api/v1/tasks/
 //
@@ -117,7 +121,8 @@ func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
 	h.mu.RLock()         // Потокобезопасное чтение
 	defer h.mu.RUnlock() // Разблокируем при выходе
 
-	w.Header().Set("Content-Type", "application/json")
+	// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
+	//w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(h.tasks)
 }
 
@@ -152,7 +157,7 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Возвращаем JSON созданной задачи.
-	w.Header().Set("Content-Type", "application/json")
+	// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(task)
 }
@@ -173,7 +178,7 @@ func (h *Handler) getTaskByID(w http.ResponseWriter, r *http.Request) {
 
 	for _, task := range h.tasks {
 		if task.ID == id {
-			w.Header().Set("Content-Type", "application/json")
+			// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
 			_ = json.NewEncoder(w).Encode(task)
 			return
 		}
@@ -214,7 +219,7 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			w.Header().Set("Content-Type", "application/json")
+			// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
 			_ = json.NewEncoder(w).Encode(h.tasks[i])
 			return
 		}
