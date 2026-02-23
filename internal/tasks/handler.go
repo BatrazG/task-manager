@@ -12,17 +12,9 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// Task — модель задачи.
-//
-// Хранится в памяти (для скорости) и сериализуется в JSON (для API и файла).
-type Task struct {
-	ID    int    `json:"id"`
-	Title string `json:"title"`
-	Done  bool   `json:"done"`
-}
-
+// [CHANGE-CONTEXT] Модель задач вынесли в отдельный файл task.go
 // Handler — HTTP-слой модуля задач.
-//
+
 // Здесь лежит всё, что относится к HTTP:
 // роуты, парсинг JSON, выставление заголовков, коды ответов, middleware.
 
@@ -240,7 +232,6 @@ func (h *Handler) deleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	for i, task := range h.tasks {
