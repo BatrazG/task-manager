@@ -1,127 +1,105 @@
+// [CHANGE-CONTEXT] Модель задач вынесли в отдельный файл task.go
+// Handler — HTTP-слой модуля задач.
 package tasks
 
 import (
-	"encoding/json"
+	// [CHANGE-CONTEXT]
+	"context"
+	"encoding/json" // [CHANGE-CONTEXT]
+	"errors"
 	"net/http"
 	"strconv"
-	"sync"
+	"time" // [CHANGE-CONTEXT]
 
 	// "task-manager/internal/middleware"
-	appMiddleware "task-manager/internal/middleware" // [CHANGE] подключаем middleware-пакет (алиас, чтобы не путать с chi/middleware)
+	appMiddleware "task-manager/internal/middleware" // подключаем middleware-пакет (алиас, чтобы не путать с chi/middleware)
 
 	"github.com/go-chi/chi/v5"
 )
 
-// [CHANGE-CONTEXT] Модель задач вынесли в отдельный файл task.go
-// Handler — HTTP-слой модуля задач.
-
+// Теперь Handler - HTTP слой модуля задач
+//
 // Здесь лежит всё, что относится к HTTP:
 // роуты, парсинг JSON, выставление заголовков, коды ответов, middleware.
-
-// Раньше состояние было в package-level переменных в main.
 //
-//	Теперь это поля структуры Handler, чтобы:
-//	- отделить HTTP-слой от запуска приложения (cmd/.../main.go);
-//	- убрать глобальные переменные;
-//	- упростить тестирование и расширение.
+// [CHANGE-CONTEXT] Состояние и бизнес-логика живут в Service, чтобы была цепочка:
+// handler -> service -> store.
 type Handler struct {
-	store  *TaskStore   // Хранилище (файловое)
-	tasks  []Task       // Кэш задач в памяти
-	nextID int          // Следующий ID для новых задач
-	mu     sync.RWMutex // Защищает tasks + nextID при параллельных запросах
+	svс *Service // [CHANGE-CONTEXT]
 }
 
 // NewHandler создаёт Handler и загружает данные из хранилища.
 //
-//	 Логика загрузки/инициализации переехала из main в конструктор,
-//		чтобы main оставался "только запуском"
-func NewHandler(store *TaskStore) *Handler {
-	h := &Handler{
-		store:  store,
-		tasks:  []Task{},
-		nextID: 1,
-	}
-
-	loaded, err := store.LoadTasks()
-	if err == nil {
-		h.tasks = loaded
-		h.nextID = calcNextID(h.tasks)
-		//  В исходнике при ошибке чтения печаталось предупреждение.
-		//         Здесь намеренно "молча" стартуем с пустым списком при ошибке.
-		//         Почему: на предыдущих парах мы с вами оговаривали моменты, когда общаемся с клиентом,
-		//         когда передаем ошибку или лог выше
-		// 		   пакет internal/tasks не должен напрямую печатать в stdout;
-		//         логирование — ответственность cmd/task-server/main.go или отдельного логгера.
-	} else {
-		// Стартуем с пустым списком, nextID остаётся 1.
-	}
-
-	return h
+// [CHANGE-CONTEXT] Загрузка данных переехала в Service (а не в Handler),
+// чтобы демонстрировать "протекание" ctx при каждом запросе.
+func NewHandler(svc *Service) *Handler {
+	return &Handler{svс: svc}
 }
 
 // Router собирает HTTP-роутер для задач.
 //
 // Здесь размещаем всё связывание путей с обработчиками.
-// Эта часть переезжает практически без изменений
 func (h *Handler) Router() http.Handler {
 	r := chi.NewRouter()
 
 	r.Route("/api/v1/tasks", func(r chi.Router) {
-		// [CHANGE] JSONHeaderMiddleware вешаем на весь tasks API,
+		// JSONHeaderMiddleware вешаем на весь tasks API,
 		// чтобы убрать дублирующиеся Content-Type из хендлеров.
 		r.Use(appMiddleware.JSONHeaderMiddleware)
 
-		// MVP: GET / (список), POST / (создание)
+		// [CHANGE-CONTEXT] Таймаут на каждый запрос tasks API.
+		// Для демо удобно держать небольшим, чтобы легко ловить DeadlineExceeded.
+		r.Use(appMiddleware.RequestTimeoutMiddleware(2 * time.Second))
+
+		// GET / (список), POST / (создание)
 		r.Get("/", h.getAllTasks)
 		r.Post("/", h.createTask)
 
-		// Advanced: GET /{id}
+		// GET /{id}
 		r.Get("/{id}", h.getTaskByID)
 
 		// PUT: обновление
 		r.Put("/{id}", h.updateTask)
 
-		// [CHANGE] Вместо AdminOnly используем BasicAuthMiddleware только на DELETE.
 		r.With(appMiddleware.BasicAuthMiddleware).Delete("/{id}", h.deleteTask)
-		//r.With(AdminOnly).Delete("/{id}", h.deleteTask)
 	})
-
 	return r
 }
-
-// Убираем, так как заменили на BasicAuth из middleware
-// AdminOnly — middleware: проверяет доступ по заголовку.
-//
-// Работает как обёртка над handler.
-// При неверном ключе отвечает 403 и не передаёт управление дальше.
-/*func AdminOnly(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// В будущем заменить на реальную проверку админа.
-		// Пока оставим как заглушку.
-		if r.Header.Get("X-Admin-Key") != "secret123" {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}*/
 
 // getAllTasks обрабатывает GET /api/v1/tasks/
 //
 // Возвращает полный список задач в JSON.
+//
+// [CHANGE-CONTEXT] Поддерживает демо медленного I/O: ?delay=2s (ParseDuration).
 func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
-	h.mu.RLock()         // Потокобезопасное чтение
-	defer h.mu.RUnlock() // Разблокируем при выходе
+	ctx := r.Context() // [CHANGE-CONTEXT]
 
-	// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
+	delay, err := parseDelayParam(r)
+	if err != nil {
+		http.Error(w, "Invalid delay. Use e.g. ?delay=200ms or ?delay=2s", http.StatusBadRequest)
+		return
+	}
+
+	tasks, err := h.svс.ListTasks(ctx, delay)
+	if err != nil {
+		if h.handleContextError(w, err) {
+			return
+		}
+		http.Error(w, "Failed to load tasks", http.StatusInternalServerError) // 500
+		return
+	}
+
+	// Content-Type выставляет JSONHeaderMiddleware
 	//w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(h.tasks)
+	_ = json.NewEncoder(w).Encode(tasks)
 }
 
 // createTask обрабатывает POST /api/v1/tasks/
 //
 // Создаёт задачу, выдаёт ID, сохраняет список на диск, возвращает созданную задачу.
 func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context() // [CHANGE-CONTEXT]
+
 	var task Task
 	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -134,30 +112,28 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.Lock()         // Потокобезопасная запись
-	defer h.mu.Unlock() // Разблокируем при выходе
-
-	task.ID = h.nextID
-	h.nextID++
-
-	h.tasks = append(h.tasks, task)
-
-	// Сохраняем на диск
-	if err := h.store.SaveTasks(h.tasks); err != nil {
-		http.Error(w, "Failed to save tasks", http.StatusInternalServerError)
+	// [CHANGE-CONTEXT]
+	created, err := h.svс.CreateTask(ctx, task)
+	if err != nil {
+		if h.handleContextError(w, err) {
+			return
+		}
+		http.Error(w, "Failed to save task", http.StatusInternalServerError)
 		return
 	}
 
 	// Возвращаем JSON созданной задачи.
-	// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
+	// Content-Type выставляет JSONHeaderMiddleware
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(task)
+	_ = json.NewEncoder(w).Encode(created)
 }
 
 // getTaskByID обрабатывает GET /api/v1/tasks/{id}
 //
 // Находит задачу по ID и возвращает её.
 func (h *Handler) getTaskByID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context() // [CHANGE-CONTEXT]
+
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -165,24 +141,32 @@ func (h *Handler) getTaskByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	for _, task := range h.tasks {
-		if task.ID == id {
-			// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
-			_ = json.NewEncoder(w).Encode(task)
+	// [CHANGE-CONTEXT]
+	task, ok, err := h.svс.GetTask(ctx, id)
+	if err != nil {
+		if h.handleContextError(w, err) {
 			return
 		}
+		http.Error(w, "Failed to get task", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "Task not found", http.StatusNotFound) // 404
+		return
 	}
 
-	http.Error(w, "Task not found", http.StatusNotFound)
+	// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
+	_ = json.NewEncoder(w).Encode(task)
+
 }
 
+// [CHANGE-CONTEXT]
 // updateTask обрабатывает PUT /api/v1/tasks/{id}
 //
 // Обновляет Title/Done у задачи, сохраняет список на диск, возвращает обновлённую задачу.
 func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context() // [CHANGE-CONTEXT]
+
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -196,35 +180,30 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	for i := range h.tasks {
-		if h.tasks[i].ID == id {
-			// Обновляем поля (ID фиксируем по URL).
-			h.tasks[i].Title = incoming.Title
-			h.tasks[i].Done = incoming.Done
-
-			// Сохраняем после PUT
-			if err := h.store.SaveTasks(h.tasks); err != nil {
-				http.Error(w, "Failed to save tasks", http.StatusInternalServerError)
-				return
-			}
-
-			// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
-			_ = json.NewEncoder(w).Encode(h.tasks[i])
+	updated, ok, err := h.svс.UpdateTask(ctx, id, incoming)
+	if err != nil {
+		if h.handleContextError(w, err) {
 			return
 		}
+		http.Error(w, "Failed to save tasks", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		// Если задача с запрашиваемым ID не найдена
+		http.Error(w, "Task not found", http.StatusNotFound)
+		return
 	}
 
-	// Если задача с запрашиваемым ID не найдена
-	http.Error(w, "Task not found", http.StatusNotFound)
+	// [CHANGE] Content-Type выставляет JSONHeaderMiddleware
+	_ = json.NewEncoder(w).Encode(updated)
 }
 
 // deleteTask обрабатывает DELETE /api/v1/tasks/{id}
 //
 // Удаляет задачу, сохраняет список на диск, возвращает 204.
 func (h *Handler) deleteTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context() // [CHANGE-CONTEXT]
+
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -232,35 +211,56 @@ func (h *Handler) deleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer h.mu.Unlock()
-
-	for i, task := range h.tasks {
-		if task.ID == id {
-			h.tasks = append(h.tasks[:i], h.tasks[i+1:]...)
-
-			// Сохраняем после DELETE.
-			if err := h.store.SaveTasks(h.tasks); err != nil {
-				http.Error(w, "Failed to save tasks", http.StatusInternalServerError)
-				return
-			}
-
-			w.WriteHeader(http.StatusNoContent)
+	ok, err := h.svс.DeleteTask(ctx, id)
+	if err != nil {
+		if h.handleContextError(w, err) {
 			return
 		}
+		http.Error(w, "Failed to save tasks", http.StatusInternalServerError)
+		return
 	}
-
-	http.Error(w, "Task not found", http.StatusNotFound)
+	if !ok {
+		http.Error(w, "Task not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
-// calcNextID — helper для корректного nextID после чтения из файла.
+// parseDelayParam парсит query-параметр ?delay=...
 //
-// Вычисляет следующий свободный ID как maxID+1.
-func calcNextID(ts []Task) int {
-	maxID := 0
-	for _, t := range ts {
-		if t.ID > maxID {
-			maxID = t.ID
-		}
+// [CHANGE-CONTEXT] Нужен для демо отмены/таймаута.
+// Например: ?delay=2s или ?delay=200ms.
+func parseDelayParam(r *http.Request) (time.Duration, error) {
+	raw := r.URL.Query().Get("delay")
+	if raw == "" {
+		return 0, nil
 	}
-	return maxID + 1
+
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, err
+	}
+
+	if d < 0 {
+		return 0, errors.New("delay must be >= 0")
+	}
+	return d, nil
+}
+
+// handleContextError делает понятную обработку ошибок отмены/таймаута.
+//
+// [CHANGE-CONTEXT] Это важно в учебном коде: показываем, что ctx.Err() - нормальная причина остановки.
+func (h *Handler) handleContextError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, context.Canceled):
+		// Запрос отменён: клиент ушёл ИЛИ сервер делает graceful shutdown.
+		// Часто отвечать уже некому (соединение закрыто), поэтому просто прекращаем работу.
+		return true
+	case errors.Is(err, context.DeadlineExceeded):
+		// Таймаут запроса (например, наш RequestTimeoutMiddleware).
+		http.Error(w, "Request timeout", http.StatusRequestTimeout) // 408
+		return true
+	default:
+		return false
+	}
 }
