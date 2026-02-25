@@ -123,7 +123,7 @@ func (s *Service) UpdateTask(ctx context.Context, id int, incoming Task) (Task, 
 	idx := -1
 	for i := range s.tasks {
 		if s.tasks[i].ID == id {
-			idx = 1
+			idx = i
 			break
 		}
 		if idx == -1 {

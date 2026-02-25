@@ -25,7 +25,7 @@ import (
 // [CHANGE-CONTEXT] Состояние и бизнес-логика живут в Service, чтобы была цепочка:
 // handler -> service -> store.
 type Handler struct {
-	svс *Service // [CHANGE-CONTEXT]
+	svc *Service // [CHANGE-CONTEXT]
 }
 
 // NewHandler создаёт Handler и загружает данные из хранилища.
@@ -33,7 +33,7 @@ type Handler struct {
 // [CHANGE-CONTEXT] Загрузка данных переехала в Service (а не в Handler),
 // чтобы демонстрировать "протекание" ctx при каждом запросе.
 func NewHandler(svc *Service) *Handler {
-	return &Handler{svс: svc}
+	return &Handler{svc: svc}
 }
 
 // Router собирает HTTP-роутер для задач.
@@ -80,7 +80,7 @@ func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tasks, err := h.svс.ListTasks(ctx, delay)
+	tasks, err := h.svc.ListTasks(ctx, delay)
 	if err != nil {
 		if h.handleContextError(w, err) {
 			return
@@ -113,7 +113,7 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// [CHANGE-CONTEXT]
-	created, err := h.svс.CreateTask(ctx, task)
+	created, err := h.svc.CreateTask(ctx, task)
 	if err != nil {
 		if h.handleContextError(w, err) {
 			return
@@ -142,7 +142,7 @@ func (h *Handler) getTaskByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// [CHANGE-CONTEXT]
-	task, ok, err := h.svс.GetTask(ctx, id)
+	task, ok, err := h.svc.GetTask(ctx, id)
 	if err != nil {
 		if h.handleContextError(w, err) {
 			return
@@ -180,7 +180,7 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, ok, err := h.svс.UpdateTask(ctx, id, incoming)
+	updated, ok, err := h.svc.UpdateTask(ctx, id, incoming)
 	if err != nil {
 		if h.handleContextError(w, err) {
 			return
@@ -211,7 +211,7 @@ func (h *Handler) deleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.svс.DeleteTask(ctx, id)
+	ok, err := h.svc.DeleteTask(ctx, id)
 	if err != nil {
 		if h.handleContextError(w, err) {
 			return
