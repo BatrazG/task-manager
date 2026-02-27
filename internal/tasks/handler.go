@@ -1,20 +1,20 @@
-// [CHANGE-CONTEXT] Модель задач вынесли в отдельный файл task.go
 // Handler — HTTP-слой модуля задач.
 package tasks
 
 import (
-	// [CHANGE-CONTEXT]
 	"context"
-	"encoding/json" // [CHANGE-CONTEXT]
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
-	"time" // [CHANGE-CONTEXT]
+	"time"
 
 	// "task-manager/internal/middleware"
 	appMiddleware "task-manager/internal/middleware" // подключаем middleware-пакет (алиас, чтобы не путать с chi/middleware)
 
 	"github.com/go-chi/chi/v5"
+	// [CHANGE-VALIDATION]: [Подключена библиотека для валидации структур]
+	"github.com/go-playground/validator/v10"
 )
 
 // Теперь Handler - HTTP слой модуля задач
@@ -22,18 +22,21 @@ import (
 // Здесь лежит всё, что относится к HTTP:
 // роуты, парсинг JSON, выставление заголовков, коды ответов, middleware.
 //
-// [CHANGE-CONTEXT] Состояние и бизнес-логика живут в Service, чтобы была цепочка:
+// Состояние и бизнес-логика живут в Service, чтобы была цепочка:
 // handler -> service -> store.
 type Handler struct {
-	svc *Service // [CHANGE-CONTEXT]
+	svc *Service
+	// [CHANGE-VALIDATION]: [Добавлен инстанс валидатора. Безопасен для конкурентного использования]
+	validator *validator.Validate
 }
 
 // NewHandler создаёт Handler и загружает данные из хранилища.
-//
-// [CHANGE-CONTEXT] Загрузка данных переехала в Service (а не в Handler),
-// чтобы демонстрировать "протекание" ctx при каждом запросе.
 func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+	return &Handler{
+		svc: svc,
+		// [CHANGE-VALIDATION]: [Инициализация валидатора внутри хендлера]
+		validator: validator.New(),
+	}
 }
 
 // Router собирает HTTP-роутер для задач.
@@ -90,7 +93,6 @@ func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Content-Type выставляет JSONHeaderMiddleware
-	//w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(tasks)
 }
 
@@ -100,19 +102,30 @@ func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context() // [CHANGE-CONTEXT]
 
-	var task Task
-	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
+	// [CHANGE-VALIDATION]: [Читаем данные не в модель БД, а в защищенную DTO (Data Transfer Object)]
+	var req CreateRaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	// Минимальная валидация.
-	if task.Title == "" {
-		http.Error(w, "Title is required", http.StatusBadRequest)
+	// [CHANGE-VALIDATION]: [Автоматическая валидация по тегам вместо ручных if len(str) == 0]
+	if err := h.validator.Struct(req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		// Возвращаем первую попавшуюся ошибку в формате JSON
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": err.Error(),
+		})
 		return
 	}
 
-	// [CHANGE-CONTEXT]
+	// [CHANGE-VALIDATION]: [Перекладываем очищенные данные в бизнес-сущность]
+	task := Task{
+		Title:    req.Title,
+		Priority: req.Priority,
+		Done:     req.Done,
+	}
+
 	created, err := h.svc.CreateTask(ctx, task)
 	if err != nil {
 		if h.handleContextError(w, err) {
@@ -160,12 +173,11 @@ func (h *Handler) getTaskByID(w http.ResponseWriter, r *http.Request) {
 
 }
 
-// [CHANGE-CONTEXT]
-// updateTask обрабатывает PUT /api/v1/tasks/{id}
+// updateTask обрабатывает PUT /api/v1/tasks/{id} (лучше использовать метод PATCH для такого подхода)
 //
-// Обновляет Title/Done у задачи, сохраняет список на диск, возвращает обновлённую задачу.
+// Обновляет Title/Done/Priority у задачи, сохраняет список на диск, возвращает обновлённую задачу.
 func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context() // [CHANGE-CONTEXT]
+	ctx := r.Context()
 
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
@@ -174,12 +186,17 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var incoming Task
+	// [CHANGE-CONTEXT] Читаем данные в DTO, а не в бизнес-модель Task!
+	// [CHANGE-VALIDATION]: [Заменили Task на UpdateTaskRequest. Теперь парсер разложит JSON по указателям]
+	var incoming UpdateTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
+	// [CHANGE-VALIDATION]: [Здесь может быть вызов валидатора, если он внедрен: validate.Struct(incoming) ]
+
+	// [CHANGE-VALIDATION]: [Передаем в сервис DTO вместо бизнес-модели]
 	updated, ok, err := h.svc.UpdateTask(ctx, id, incoming)
 	if err != nil {
 		if h.handleContextError(w, err) {

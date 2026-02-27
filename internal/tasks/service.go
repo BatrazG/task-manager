@@ -112,7 +112,8 @@ func (s *Service) CreateTask(ctx context.Context, incoming Task) (Task, error) {
 }
 
 // UpdateTask обновляет задачу по id и сохраняет в файл.
-func (s *Service) UpdateTask(ctx context.Context, id int, incoming Task) (Task, bool, error) {
+// [CHANGE-VALIDATION]: [Сигнатура функции изменена — принимаем UpdateTaskRequest]
+func (s *Service) UpdateTask(ctx context.Context, id int, incoming UpdateTaskRequest) (Task, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return Task{}, false, err
 	}
@@ -126,14 +127,24 @@ func (s *Service) UpdateTask(ctx context.Context, id int, incoming Task) (Task, 
 			idx = i
 			break
 		}
-		if idx == -1 {
-			return Task{}, false, nil
-		}
+	}
+	// Маленький рефакторинг (Исправлено смещение блока, ранее условие ошибочно находилось внутри цикла)
+	if idx == -1 {
+		return Task{}, false, nil
 	}
 
 	updated := s.tasks[idx]
-	updated.Title = incoming.Title
-	updated.Done = incoming.Done
+
+	// [CHANGE-VALIDATION]: [Точечное обновление: проверяем, прислал ли клиент значение (указатель != nil), и только если прислал — перезаписываем]
+	if incoming.Title != nil {
+		updated.Title = *incoming.Title
+	}
+	if incoming.Done != nil {
+		updated.Done = *incoming.Done
+	}
+	if incoming.Priority != nil {
+		updated.Priority = *incoming.Priority
+	}
 
 	candidate := make([]Task, len(s.tasks))
 	copy(candidate, s.tasks)
@@ -159,7 +170,7 @@ func (s *Service) DeleteTask(ctx context.Context, id int) (bool, error) {
 	idx := -1
 	for i := range s.tasks {
 		if s.tasks[i].ID == id {
-			idx = 1
+			idx = i
 			break
 		}
 	}
