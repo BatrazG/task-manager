@@ -1,16 +1,18 @@
 package main
 
 import (
-	"context" // [CHANGE-CONTEXT]
-	"errors"  // [CHANGE-CONTEXT]
-	"log"     // [CHANGE-CONTEXT]
-	"net"     // [CHANGE-CONTEXT]
+	"context"
+	"errors"
+	"log"
+	"net"
 	"net/http"
-	"os"        // [CHANGE-CONTEXT]
-	"os/signal" // [CHANGE-CONTEXT]
-	"syscall"   // [CHANGE-CONTEXT]
-	"time"      // [CHANGE-CONTEXT]
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	// [Импорт пакета config: Подключаем наш новый модуль настроек]
+	"task-manager/internal/config"
 	"task-manager/internal/middleware" // Подключаем наш пакет middleware
 	"task-manager/internal/tasks"
 
@@ -23,6 +25,9 @@ import (
 // - настройка middleware;
 // - запуск HTTP-сервера.
 func main() {
+	// [Инициализация конфига: Читаем переменные окружения при старте]
+	cfg := config.Load()
+
 	// Создаем основной контекст приложения.
 	// Его отмена должна "доезжать" до всех in-flight запросов
 	// через http.Server.BaseContext.
@@ -34,7 +39,8 @@ func main() {
 	defer stop()
 
 	// Инициализируем файловое хранилище.
-	store := tasks.NewTaskStore("tasks.json")
+	// [Использование конфига: передаем путь до файла БД из настроек, а не хардкодом]
+	store := tasks.NewTaskStore(cfg.StoragePath)
 
 	// Инициализируем сервис (слой business logic) и грузим данные с учетом контекста.
 	svc, err := tasks.NewService(appCtx, store)
@@ -49,35 +55,37 @@ func main() {
 	// Роуты переехали в internal/tasks (HTTP-слой), main только подключает.
 	r := chiWithMiddleware(handler.Router())
 
-	// [CHANGE-CONTEXT] Запускаем сервер через http.Server (а не http.ListenAndServe),
+	// Запускаем сервер через http.Server (а не http.ListenAndServe),
 	// чтобы поддержать graceful shutdown + таймауты сервера.
 	srv := &http.Server{
-		Addr:    ":8080",
+		// [Использование конфига: подставляем порт из переменных окружения]
+		Addr:    ":" + cfg.Port,
 		Handler: r,
 
-		// [CHANGE-CONTEXT] Понятные таймауты сервера (без усложнений).
+		// Понятные таймауты сервера (без усложнений).
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 
-		// [CHANGE-CONTEXT] Корневой контекст для всех соединений/запросов.
+		// Корневой контекст для всех соединений/запросов.
 		// Если мы отменим appCtx при shutdown, r.Context() у in-flight запросов тоже отменится.
 		BaseContext: func(net.Listener) context.Context {
 			return appCtx
 		},
 	}
 
-	ln, err := net.Listen("tcp", srv.Addr) // [CHANGE-CONTEXT]
+	ln, err := net.Listen("tcp", srv.Addr)
 	if err != nil {
 		log.Fatalf("listen error: %v", err)
 	}
 
-	log.Printf("Server running on %s", srv.Addr) // [CHANGE-CONTEXT]
+	// [Логирование конфига: визуализируем настройки для удобства DevOps]
+	log.Printf("Server running on port %s (Storage %s)", cfg.Port, cfg.StoragePath)
 
-	serverErrCh := make(chan error, 1) // [CHANGE-CONTEXT]
+	serverErrCh := make(chan error, 1)
 	go func() {
-		err := srv.Serve(ln) // [CHANGE-CONTEXT]
+		err := srv.Serve(ln)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrCh <- err
 			return
@@ -85,7 +93,7 @@ func main() {
 		serverErrCh <- nil
 	}()
 
-	// [CHANGE-CONTEXT] Ждём либо сигнал, либо фатальную ошибку сервера.
+	// Ждём либо сигнал, либо фатальную ошибку сервера.
 	select {
 	case <-sigCtx.Done():
 		log.Printf("shutdown signal received")
@@ -99,12 +107,12 @@ func main() {
 		}
 	}
 
-	// [CHANGE-CONTEXT] ВАЖНО: отменяем корневой контекст приложения.
+	// ВАЖНО: отменяем корневой контекст приложения.
 	// Это "протекает" сверху вниз: handler -> service -> store,
 	// и позволяет in-flight запросам корректно завершиться по ctx.Done().
 	appCancel()
 
-	// [CHANGE-CONTEXT] Graceful shutdown с таймаутом.
+	// Graceful shutdown с таймаутом.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
