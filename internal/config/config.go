@@ -25,4 +25,6 @@ func Load() *Config {
 	if path := os.Getenv("STORAGE_PATH"); path != "" {
 		cfg.StoragePath = path
 	}
+
+	return cfg
 }
