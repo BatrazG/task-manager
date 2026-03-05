@@ -116,7 +116,6 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		Priority: req.Priority,
 	}
 
-	// [CHANGE-CONTEXT]
 	created, err := h.svc.CreateTask(ctx, incoming)
 	if err != nil {
 		if h.handleContextError(w, err) {
