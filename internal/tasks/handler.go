@@ -1,20 +1,18 @@
-// [CHANGE-CONTEXT] Модель задач вынесли в отдельный файл task.go
 // Handler — HTTP-слой модуля задач.
 package tasks
 
 import (
-	// [CHANGE-CONTEXT]
 	"context"
-	"encoding/json" // [CHANGE-CONTEXT]
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
-	"time" // [CHANGE-CONTEXT]
+	"time"
 
-	// "task-manager/internal/middleware"
 	appMiddleware "task-manager/internal/middleware" // подключаем middleware-пакет (алиас, чтобы не путать с chi/middleware)
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-playground/validator/v10"
 )
 
 // Теперь Handler - HTTP слой модуля задач
@@ -22,18 +20,19 @@ import (
 // Здесь лежит всё, что относится к HTTP:
 // роуты, парсинг JSON, выставление заголовков, коды ответов, middleware.
 //
-// [CHANGE-CONTEXT] Состояние и бизнес-логика живут в Service, чтобы была цепочка:
+// Состояние и бизнес-логика живут в Service, чтобы была цепочка:
 // handler -> service -> store.
 type Handler struct {
-	svc *Service // [CHANGE-CONTEXT]
+	svc      *Service
+	validate *validator.Validate
 }
 
 // NewHandler создаёт Handler и загружает данные из хранилища.
-//
-// [CHANGE-CONTEXT] Загрузка данных переехала в Service (а не в Handler),
-// чтобы демонстрировать "протекание" ctx при каждом запросе.
 func NewHandler(svc *Service) *Handler {
-	return &Handler{svc: svc}
+	return &Handler{
+		svc:      svc,
+		validate: validator.New(),
+	}
 }
 
 // Router собирает HTTP-роутер для задач.
@@ -89,8 +88,6 @@ func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Content-Type выставляет JSONHeaderMiddleware
-	//w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(tasks)
 }
 
@@ -100,20 +97,27 @@ func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context() // [CHANGE-CONTEXT]
 
-	var task Task
-	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
+	var req CreateTaskRequest // [Валидация] входящие данные читаем в DTO, чтобы валидировать контракт запроса
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	// Минимальная валидация.
-	if task.Title == "" {
-		http.Error(w, "Title is required", http.StatusBadRequest)
+	if err := h.validate.Struct(req); err != nil { // [Валидация] Fail Fast: не пускаем невалидные данные в Service/Storage
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
+	// [Валидация]
+	incoming := Task{
+		Title:    req.Title,
+		Done:     req.Done,
+		Priority: req.Priority,
+	}
+
 	// [CHANGE-CONTEXT]
-	created, err := h.svc.CreateTask(ctx, task)
+	created, err := h.svc.CreateTask(ctx, incoming)
 	if err != nil {
 		if h.handleContextError(w, err) {
 			return

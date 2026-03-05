@@ -92,9 +92,10 @@ func (s *Service) CreateTask(ctx context.Context, incoming Task) (Task, error) {
 	defer s.mu.Unlock()
 
 	created := Task{
-		ID:    s.nextID,
-		Title: incoming.Title,
-		Done:  incoming.Done,
+		ID:       s.nextID,
+		Title:    incoming.Title,
+		Done:     incoming.Done,
+		Priority: incoming.Priority, // [Валидация]
 	}
 
 	// Готовим новый список, но НЕ коммитим в память, пока не сохранили на диск.
@@ -126,9 +127,9 @@ func (s *Service) UpdateTask(ctx context.Context, id int, incoming Task) (Task, 
 			idx = i
 			break
 		}
-		if idx == -1 {
-			return Task{}, false, nil
-		}
+	}
+	if idx == -1 {
+		return Task{}, false, nil
 	}
 
 	updated := s.tasks[idx]
@@ -159,7 +160,7 @@ func (s *Service) DeleteTask(ctx context.Context, id int) (bool, error) {
 	idx := -1
 	for i := range s.tasks {
 		if s.tasks[i].ID == id {
-			idx = 1
+			idx = i
 			break
 		}
 	}
