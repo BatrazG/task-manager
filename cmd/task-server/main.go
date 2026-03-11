@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	// [Импорт пакета config: Подключаем наш новый модуль настроек]
+	// Импорт пакета config: Подключаем наш новый модуль настроек
 	"task-manager/internal/config"
 	"task-manager/internal/middleware" // Подключаем наш пакет middleware
 	"task-manager/internal/tasks"
@@ -25,7 +25,7 @@ import (
 // - настройка middleware;
 // - запуск HTTP-сервера.
 func main() {
-	// [Инициализация конфига: Читаем переменные окружения при старте]
+	// Инициализация конфига: Читаем переменные окружения при старте
 	cfg := config.Load()
 
 	// Создаем основной контекст приложения.
@@ -39,7 +39,7 @@ func main() {
 	defer stop()
 
 	// Инициализируем файловое хранилище.
-	// [Использование конфига: передаем путь до файла БД из настроек, а не хардкодом]
+	// Использование конфига: передаем путь до файла БД из настроек, а не хардкодом
 	store := tasks.NewTaskStore(cfg.StoragePath)
 
 	// Инициализируем сервис (слой business logic) и грузим данные с учетом контекста.
@@ -58,7 +58,7 @@ func main() {
 	// Запускаем сервер через http.Server (а не http.ListenAndServe),
 	// чтобы поддержать graceful shutdown + таймауты сервера.
 	srv := &http.Server{
-		// [Использование конфига: подставляем порт из переменных окружения]
+		// Использование конфига: подставляем порт из переменных окружения
 		Addr:    ":" + cfg.Port,
 		Handler: r,
 
@@ -80,7 +80,7 @@ func main() {
 		log.Fatalf("listen error: %v", err)
 	}
 
-	// [Логирование конфига: визуализируем настройки для удобства DevOps]
+	// Логирование конфига: визуализируем настройки для удобства DevOps
 	log.Printf("Server running on port %s (Storage %s)", cfg.Port, cfg.StoragePath)
 
 	serverErrCh := make(chan error, 1)
@@ -135,11 +135,17 @@ func chiWithMiddleware(h http.Handler) http.Handler {
 	r := chi.NewRouter()
 
 	// middleware.Logger и middleware.Recoverer.
-	r.Use(chiMiddleware.Logger)
-	r.Use(chiMiddleware.Recoverer)
+	// r.Use(chiMiddleware.Logger)
+	// r.Use(chiMiddleware.Recoverer)
 
-	// [CHANGE] подключаем кастомный логгер на весь сервис
-	r.Use(middleware.LoggingMiddleware)
+	// Подключаем кастомный логгер на весь сервис
+	// r.Use(middleware.LoggingMiddleware)
+
+	// request-id должен быть доступен всем нижним слоям и логам (проброс через context + header)
+	r.Use(middleware.RequestIDMiddleware)
+
+	// Recoverer ставим "внутрь" логгера, чтобы паника превращалась в 500 ДО логирования статуса
+	r.Use(chiMiddleware.Recoverer)
 
 	r.Mount("/", h)
 	return r
