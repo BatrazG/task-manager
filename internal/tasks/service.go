@@ -1,5 +1,4 @@
-// [CHANGE-CONTEXT] создадим минимальный слой бизнес-логики
-// чтобы лучше разобраться с темой
+// Слой бизнес-логики
 package tasks
 
 import (
@@ -19,7 +18,7 @@ type Service struct {
 	nextID int
 }
 
-// NewService создает сервис и загружает задачи из ранилища
+// NewService создает сервис и загружает задачи из хранилища
 
 // Принимаем ctx, чтобы даже инициализация уважала отмену
 func NewService(ctx context.Context, store *TaskStore) (*Service, error) {
@@ -95,7 +94,7 @@ func (s *Service) CreateTask(ctx context.Context, incoming Task) (Task, error) {
 		ID:       s.nextID,
 		Title:    incoming.Title,
 		Done:     incoming.Done,
-		Priority: incoming.Priority, // [Валидация]
+		Priority: incoming.Priority,
 	}
 
 	// Готовим новый список, но НЕ коммитим в память, пока не сохранили на диск.
@@ -135,6 +134,8 @@ func (s *Service) UpdateTask(ctx context.Context, id int, incoming Task) (Task, 
 	updated := s.tasks[idx]
 	updated.Title = incoming.Title
 	updated.Done = incoming.Done
+	// PUT должен обновлять priority тоже -- иначе контракт "полуработающий".
+	updated.Priority = incoming.Priority
 
 	candidate := make([]Task, len(s.tasks))
 	copy(candidate, s.tasks)
