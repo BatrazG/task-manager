@@ -3,37 +3,67 @@ package tasks
 
 import (
 	"context"
-	"sync"
-	"time"
 )
 
 // Service - слой бизнес-логики
 // В нашем учебном проекте он минимальный, но нужен, чтобы было видно
 // "протекание" контекста по слоям: handler -> service -> store
 type Service struct {
-	store *TaskStore
-
-	mu     sync.RWMutex
-	tasks  []Task
-	nextID int
+	repo TaskRepository
 }
 
 // NewService создает сервис и загружает задачи из хранилища
 
 // Принимаем ctx, чтобы даже инициализация уважала отмену
-func NewService(ctx context.Context, store *TaskStore) (*Service, error) {
-	loaded, err := store.LoadTasks(ctx)
-	if err != nil {
+func NewService(repo TaskRepository) *Service {
+	return &Service{
+		repo: repo,
+	}
+}
+
+func (s *Service) CreateTask(ctx context.Context, task *Task) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Просто делегируем задачу репозиторию
+	return s.repo.Create(ctx, task)
+}
+
+func (s *Service) GetTaskByID(ctx context.Context, id int) (*Task, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	return &Service{
-		store:  store,
-		tasks:  loaded,
-		nextID: calcNextID(loaded),
-	}, nil
+	return s.repo.GetByID(ctx, id)
 }
 
+func (s *Service) GetAllTasks(ctx context.Context) ([]Task, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	return s.repo.GetAll(ctx)
+}
+
+func (s *Service) UpdateTask(ctx context.Context, task *Task) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	return s.repo.Update(ctx, task)
+}
+
+func (s *Service) DeleteTask(ctx context.Context, id int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	return s.repo.Delete(ctx, id)
+}
+
+// Устаревшие методы из бизнес-логики,
+// когда хранилище было только в JSON
+/*
 // ListTasks возвращает список задач.
 // Если delay > 0, симулируем "медленное I/O" в нижнем слое (store),
 // чтобы можно было демонстрировать cancel/timeout.
@@ -180,16 +210,4 @@ func (s *Service) DeleteTask(ctx context.Context, id int) (bool, error) {
 	s.tasks = candidate
 	return true, nil
 }
-
-// calcNextID — helper для корректного nextID после чтения из файла.
-//
-// Вычисляет следующий свободный ID как maxID+1.
-func calcNextID(ts []Task) int {
-	maxID := 0
-	for _, t := range ts {
-		if t.ID > maxID {
-			maxID = t.ID
-		}
-	}
-	return maxID + 1
-}
+*/
