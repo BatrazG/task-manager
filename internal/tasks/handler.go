@@ -90,21 +90,14 @@ func (h *Handler) Router() http.Handler {
 //
 // Поддерживает демо медленного I/O: ?delay=2s (ParseDuration).
 func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context() // [CHANGE-CONTEXT]
+	ctx := r.Context()
 
-	delay, err := parseDelayParam(r)
-	if err != nil {
-		appMiddleware.WriteError(w, r, http.StatusBadRequest, "bad_request", "Invalid delay. Use e.g. ?delay=200ms or ?delay=2s",
-			map[string]any{"error": err.Error()}) // NEW-TEACH: единый формат ошибок
-		return
-	}
-
-	tasks, err := h.svc.ListTasks(ctx, delay)
+	// Честно идем в сервис, который идет в Postgres
+	tasks, err := h.svc.GetAllTasks(ctx)
 	if err != nil {
 		if h.handleContextError(w, r, err) {
 			return
 		}
-		// внутреннюю причину логируем, клиенту отдаём стабильное сообщение
 		log.Printf("request_id=%s getAllTasks error: %v", appMiddleware.GetRequestID(ctx), err)
 		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to load tasks", nil)
 		return
@@ -113,49 +106,44 @@ func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(tasks)
 }
 
-// createTask обрабатывает POST /api/v1/tasks/
-//
-// Создаёт задачу, выдаёт ID, сохраняет список на диск, возвращает созданную задачу.
 func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context() // [CHANGE-CONTEXT]
+	ctx := r.Context()
 
-	var req CreateTaskRequest // [Валидация] входящие данные читаем в DTO, чтобы валидировать контракт запроса
+	// 1. ВАШ КРУТОЙ DTO И ВАЛИДАЦИЯ (ОСТАВЛЯЕМ КАК БЫЛО)
+	var req CreateTaskRequest
 	if err := decodeJSONStrict(r, &req); err != nil {
-		h.writeDecodeError(w, r, err) // NEW-TEACH: аккуратно маппим ошибки JSON/лимитов в HTTP
+		h.writeDecodeError(w, r, err)
 		return
 	}
 
-	if err := h.validate.Struct(req); err != nil { // [Валидация] Fail Fast: не пускаем невалидные данные в Service/Storage
+	if err := h.validate.Struct(req); err != nil {
 		appMiddleware.WriteError(w, r, http.StatusBadRequest, "validation_error", "Validation failed",
-			validationDetails(err)) // NEW-TEACH: стабильный details вместо "сырого" текста
+			validationDetails(err))
 		return
 	}
 
-	// Валидация
+	// 2. Маппим DTO в доменную модель
 	incoming := Task{
 		Title:    req.Title,
 		Done:     req.Done,
 		Priority: req.Priority,
 	}
 
-	// CONTEXT
-	created, err := h.svc.CreateTask(ctx, incoming)
+	// 3. Отправляем в сервис по указателю (тут запишется новый ID)
+	err := h.svc.CreateTask(ctx, &incoming)
 	if err != nil {
 		if h.handleContextError(w, r, err) {
 			return
 		}
-		log.Printf("request_id=%s createTask error: %v", appMiddleware.GetRequestID(ctx), err) // NEW-TEACH
+		log.Printf("request_id=%s createTask error: %v", appMiddleware.GetRequestID(ctx), err)
 		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to save task", nil)
 		return
 	}
 
-	// NEW: Location -- маленькое, но полезное улучшение HTTP-контракта для 201 Created.
-	w.Header().Set("Location", fmt.Sprintf("/api/v1/tasks/%d", created.ID))
-
-	// Возвращаем JSON созданной задачи.
-	// Content-Type выставляет JSONHeaderMiddleware
+	// 4. ИСПРАВЛЕННЫЙ ОТВЕТ (Используем incoming вместо created)
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/tasks/%d", incoming.ID))
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(created)
+	_ = json.NewEncoder(w).Encode(incoming)
 }
 
 // getTaskByID обрабатывает GET /api/v1/tasks/{id}
@@ -172,18 +160,18 @@ func (h *Handler) getTaskByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, ok, err := h.svc.GetTask(ctx, id)
+	task, err := h.svc.GetTaskByID(ctx, id)
+	if errors.Is(err, ErrTaskNotFound) {
+		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
+			map[string]any{"id": id}) // NEW-TEACH
+		return
+	}
 	if err != nil {
 		if h.handleContextError(w, r, err) {
 			return
 		}
 		log.Printf("request_id=%s getTaskByID error: %v", appMiddleware.GetRequestID(ctx), err) // NEW-TEACH
 		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to get task", nil)
-		return
-	}
-	if !ok {
-		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
-			map[string]any{"id": id}) // NEW-TEACH
 		return
 	}
 
@@ -220,12 +208,19 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	incoming := Task{
+		ID:       id,
 		Title:    req.Title,
 		Done:     req.Done,
 		Priority: req.Priority,
 	}
 
-	updated, ok, err := h.svc.UpdateTask(ctx, id, incoming)
+	err = h.svc.UpdateTask(ctx, &incoming)
+	if errors.Is(err, ErrTaskNotFound) {
+		// Если задача с запрашиваемым ID не найдена
+		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
+			map[string]any{"id": id}) // NEW-TEACH
+		return
+	}
 	if err != nil {
 		if h.handleContextError(w, r, err) {
 			return
@@ -234,14 +229,8 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to save tasks", nil)
 		return
 	}
-	if !ok {
-		// Если задача с запрашиваемым ID не найдена
-		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
-			map[string]any{"id": id}) // NEW-TEACH
-		return
-	}
 
-	_ = json.NewEncoder(w).Encode(updated)
+	_ = json.NewEncoder(w).Encode(incoming)
 }
 
 // deleteTask обрабатывает DELETE /api/v1/tasks/{id}
@@ -258,18 +247,18 @@ func (h *Handler) deleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ok, err := h.svc.DeleteTask(ctx, id)
+	err = h.svc.DeleteTask(ctx, id)
+	if errors.Is(err, ErrTaskNotFound) {
+		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
+			map[string]any{"id": id}) // NEW
+		return
+	}
 	if err != nil {
 		if h.handleContextError(w, r, err) {
 			return
 		}
 		log.Printf("request_id=%s deleteTask error: %v", appMiddleware.GetRequestID(ctx), err) // NEW-TEACH
 		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to save tasks", nil)
-		return
-	}
-	if !ok {
-		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
-			map[string]any{"id": id}) // NEW
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -3,11 +3,15 @@ package tasks
 import (
 	"context" // [CHANGE-CONTEXT]
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"sync"
-	"time" // [CHANGE-CONTEXT]
+	// [CHANGE-CONTEXT]
 )
+
+// Объявляем понятную ошибку для всего пакета tasks
+var ErrTaskNotFound = errors.New("task not found")
 
 // TaskStore отвечает за хранение задач в файле.
 //
@@ -103,26 +107,129 @@ func (ts *TaskStore) LoadTasks(ctx context.Context) ([]Task, error) {
 	return tasks, nil
 }
 
-// SimulateSlowIO симулирует "медленное I/O", которое можно прервать через ctx.Done().
-//
-// [CHANGE-CONTEXT] Это учебная имитация "медленной БД/файла":
-// select { time.After(d) vs ctx.Done() } -- минимальный, но важный паттерн.
-func (ts *TaskStore) SimulateSlowIO(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return ctx.Err() // nil, если всё ок; ошибка, если уже отменено
-	}
-
+func (ts *TaskStore) Create(ctx context.Context, task *Task) error {
+	// Проверяем контекст перед операцией - например не было ли отмены
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return ctx.Err() // nil, если не отменено
-	case <-ctx.Done():
-		return ctx.Err()
+	// 1. Загрузить все текущие задачи из файла с помощью существующего ts.LoadTasks(ctx)
+	tasks, err := ts.LoadTasks(ctx)
+	if err != nil {
+		return err
 	}
+
+	// 2. Сгенерировать новый ID (используйте ваш calcNextID) и присвоить его task.ID
+	maxID := 0
+	for _, t := range tasks {
+		if t.ID > maxID {
+			maxID = t.ID
+		}
+	}
+	task.ID = maxID + 1
+
+	// 3. Добавить (append) новый task в слайс
+	tasks = append(tasks, *task)
+
+	// 4. Сохранить обновленный слайс обратно в файл через ts.SaveTasks(ctx, ...)
+	return ts.SaveTasks(ctx, tasks)
+}
+
+// Возвращает слайс со всем задачами из БД
+func (ts *TaskStore) GetAll(ctx context.Context) ([]Task, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	tasks, err := ts.LoadTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
+}
+
+// Ищет и возвращает задачу по ID
+func (ts *TaskStore) GetByID(ctx context.Context, id int) (*Task, error) {
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	tasks, err := ts.LoadTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range tasks {
+		if tasks[i].ID == id {
+			return &tasks[i], nil
+		}
+	}
+
+	return nil, ErrTaskNotFound
+}
+
+// Update обновляет сущетвующую задачу
+func (ts *TaskStore) Update(ctx context.Context, task *Task) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	tasks, err := ts.LoadTasks(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Флаг, который покажет, нашли ли мы задачу
+	found := false
+
+	for i := range tasks {
+		if tasks[i].ID == task.ID {
+			// Обновляем поля прямо в оригинальном слайсе
+			tasks[i].Title = task.Title
+			tasks[i].Done = task.Done
+			tasks[i].Priority = task.Priority
+			found = true
+			break // Нашли, дальше крутить цикл нет смысла, выходим
+		}
+	}
+
+	// Если обошли весь цикл и никого не нашли — возвращаем ошибку
+	if !found {
+		return ErrTaskNotFound
+	}
+
+	// Записываем обновленный слайс обратно в файл на диск!
+	return ts.SaveTasks(ctx, tasks)
+}
+
+// Delete Удаляет задачу по id
+func (ts *TaskStore) Delete(ctx context.Context, id int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	tasks, err := ts.LoadTasks(ctx)
+	if err != nil {
+		return err
+	}
+
+	found := false
+
+	for i := range tasks {
+		if tasks[i].ID == id {
+			// Удаляем найденную задачу из слайса
+			tasks = append(tasks[:i], tasks[i+1:]...)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return ErrTaskNotFound
+	}
+
+	// Если задача найдена и удалена, сбрасываем слайс в память
+	return ts.SaveTasks(ctx, tasks)
 }
