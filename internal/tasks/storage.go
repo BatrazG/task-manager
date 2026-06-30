@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time" // [CHANGE-CONTEXT]
+	// [CHANGE-CONTEXT]
 )
 
 // Объявляем понятную ошибку для всего пакета tasks
@@ -232,28 +232,4 @@ func (ts *TaskStore) Delete(ctx context.Context, id int) error {
 
 	// Если задача найдена и удалена, сбрасываем слайс в память
 	return ts.SaveTasks(ctx, tasks)
-}
-
-// SimulateSlowIO симулирует "медленное I/O", которое можно прервать через ctx.Done().
-//
-// [CHANGE-CONTEXT] Это учебная имитация "медленной БД/файла":
-// select { time.After(d) vs ctx.Done() } -- минимальный, но важный паттерн.
-func (ts *TaskStore) SimulateSlowIO(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return ctx.Err() // nil, если всё ок; ошибка, если уже отменено
-	}
-
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return ctx.Err() // nil, если не отменено
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }

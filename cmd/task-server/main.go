@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log"
 	"net"
@@ -10,6 +11,9 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 
 	// Импорт пакета config: Подключаем наш новый модуль настроек
 	"task-manager/internal/config"
@@ -25,8 +29,13 @@ import (
 // - настройка middleware;
 // - запуск HTTP-сервера.
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("Предупреждение: .env файл не найден, используются системные переменные")
+	}
+
 	// Инициализация конфига: Читаем переменные окружения при старте
 	cfg := config.Load()
+	log.Printf("!!! ТЕКУЩИЙ DSN ДЛЯ ПОДКЛЮЧЕНИЯ: %s", cfg.DSN())
 
 	// Создаем основной контекст приложения.
 	// Его отмена должна "доезжать" до всех in-flight запросов
@@ -38,15 +47,30 @@ func main() {
 	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Инициализируем файловое хранилище.
-	// Использование конфига: передаем путь до файла БД из настроек, а не хардкодом
-	store := tasks.NewTaskStore(cfg.StoragePath)
+	// Объявляем переменную для интерфейса
+	var repo tasks.TaskRepository
 
-	// Инициализируем сервис (слой business logic) и грузим данные с учетом контекста.
-	svc, err := tasks.NewService(appCtx, store)
-	if err != nil {
-		log.Fatalf("service init error: %v\n", err) // Логирование - ответственность main
+	if cfg.StoragePath == "postgres" {
+		db, err := sql.Open("postgres", cfg.DSN())
+		if err != nil {
+			log.Fatalf("Ошибка подключения к БД: %v", err)
+		}
+		defer db.Close()
+
+		if err := db.Ping(); err != nil {
+			log.Fatalf("БД недоступна: %v", err)
+		}
+
+		repo = tasks.NewPostgresRepository(db)
+		log.Println("Приложение запущено с хранилищем PostgreSQL")
+	} else {
+		// Если в конфиге указан путь к файлу, запускаем старый файловый стор
+		repo = tasks.NewTaskStore(cfg.StoragePath)
+		log.Println("Приложение запущено с хранилищем JSON:", cfg.StoragePath)
 	}
+
+	// Передаем выбранный репозиторий в сервис
+	svc := tasks.NewService(repo)
 
 	// Инициализируем HTTP-обработчики задач.
 	handler := tasks.NewHandler(svc)
