@@ -3,6 +3,14 @@ package tasks
 
 import (
 	"context"
+	"errors"
+
+	"time"
+
+	"os"
+
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Service - слой бизнес-логики
@@ -59,6 +67,79 @@ func (s *Service) DeleteTask(ctx context.Context, id int) error {
 	}
 
 	return s.repo.Delete(ctx, id)
+}
+
+func (s *Service) Register(ctx context.Context, req RegisterRequest) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if req.InviteCode != os.Getenv("REGISTRATION_INVITE_CODE") {
+		return errors.New("invalid invite code") // или кастомная ошибка
+	}
+
+	_, err := s.repo.GetUserByEmail(ctx, req.Email)
+
+	if err == nil {
+		// Пользователь нашелся без ошибок -> email точно занят!
+		return ErrUserAlreadyExists
+	}
+	// Если ошибка НЕ связана с тем, что юзер не найден — значит это фатальная ошибка БД
+	if !errors.Is(err, ErrUserNotFound) {
+		return err
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	hash := string(hashedPassword)
+	u := User{
+		Email:        req.Email,
+		PasswordHash: hash,
+	}
+	err = s.repo.CreateUser(ctx, &u)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Service) Login(ctx context.Context, req LoginRequest) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
+	u, err := s.repo.GetUserByEmail(ctx, req.Email)
+	if errors.Is(err, ErrUserNotFound) {
+		return "", ErrInvalidCredentials
+	}
+
+	if err != nil {
+		return "", err
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(req.Password))
+	if err != nil {
+		return " ", ErrInvalidCredentials
+	}
+
+	claims := jwt.MapClaims{
+		"user_id": u.ID,
+		"exp":     time.Now().Add(24 * time.Hour).Unix(), // Токен сгорит через сутки
+	}
+
+	// Создаем и подписываеем токен
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	// Забираем секретный ключ из окружения
+	secret := os.Getenv("JWT_SECRET")
+
+	// Превращаем токен в финальную строку
+	tokenString, err := token.SignedString([]byte(secret))
+
+	return tokenString, nil
 }
 
 // Устаревшие методы из бизнес-логики,

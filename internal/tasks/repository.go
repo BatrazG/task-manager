@@ -18,6 +18,12 @@ type TaskRepository interface {
 
 	// 5. Удалить задачу по ID.
 	Delete(ctx context.Context, id int) error
+
+	// 6. Создать нового пользователя
+	CreateUser(ctx context.Context, user *User) error
+
+	// 7. Ищет пользователя по email и возвращает заполненную структуру.
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
 }
 
 // calcNextID — helper для корректного nextID после чтения из  JSON файла.

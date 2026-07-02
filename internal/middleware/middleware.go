@@ -29,27 +29,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// BasicAuthMiddleware защищает эндпоинт HTTP Basic Auth.
-//
-// r.BasicAuth() парсит заголовок Authorization и возвращает (username, password, ok).
-// Если аутентификация не пройдена, middleware:
-// 1) выставляет WWW-Authenticate (чтобы браузер/клиент понял, что нужен логин/пароль)
-// 2) возвращает 401 Unauthorized и НЕ вызывает next.
-func BasicAuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		name, pass, ok := r.BasicAuth()
-		if !ok || name != "admin" || pass != "secret" {
-			// realm — "зона" аутентификации, отображается клиентам (например, в браузере).
-			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
-			// http.Error(w, "Unauthorized", http.StatusUnauthorized) // 401
-			// Единый JSON-формат ошибок даже для middleware (консистентный HTTP контракт)
-			WriteError(w, r, http.StatusUnauthorized, "unauthorized", "Unauthorized", nil)
-			return
-		}
-		next.ServeHTTP(w, r) // доступ разрешён — продолжаем цепочку
-	})
-}
-
 // JSONHeaderMiddleware проставляет заголовок Content-Type для JSON‑ответов.
 //
 // Это удобно, когда обработчики всегда возвращают JSON.

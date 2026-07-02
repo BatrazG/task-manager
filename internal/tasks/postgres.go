@@ -41,7 +41,7 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id int) (*Task, error)
 	var t Task
 	err := r.db.QueryRowContext(ctx, "SELECT id, title, done, priority FROM tasks WHERE id=$1", id).Scan(&t.ID, &t.Title, &t.Done, &t.Priority)
 
-	if errors.Is(sql.ErrNoRows, err) {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrTaskNotFound
 	}
 
@@ -83,10 +83,66 @@ func (r *PostgresRepository) GetAll(ctx context.Context) ([]Task, error) {
 
 // 4. Обновить задачу.
 func (r *PostgresRepository) Update(ctx context.Context, task *Task) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	query := "UPDATE tasks SET title=$1, done=$2, priority=$3 WHERE id=$4"
+	result, err := r.db.ExecContext(ctx, query, task.Title, task.Done, task.Priority, task.ID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if rowsAffected == 0 {
+		return ErrTaskNotFound
+	}
+
 	return nil
 }
 
 // 5. Удалить задачу по ID.
 func (r *PostgresRepository) Delete(ctx context.Context, id int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	query := "DELETE FROM tasks WHERE id=$1"
+	result, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if rowsAffected == 0 {
+		return ErrTaskNotFound
+	}
+
 	return nil
+}
+
+// Добавить нового пользователя
+func (r *PostgresRepository) CreateUser(ctx context.Context, user *User) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	query := "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id"
+	return r.db.QueryRowContext(ctx, query, user.Email, user.PasswordHash).Scan(&user.ID)
+}
+
+// Найти пользователя по email
+func (r *PostgresRepository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	var u User
+	query := "SELECT id, email, password_hash FROM users WHERE email = $1"
+	err := r.db.QueryRowContext(ctx, query, email).Scan(&u.ID, &u.Email, &u.PasswordHash)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+	return &u, nil
 }
