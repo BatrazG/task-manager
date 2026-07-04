@@ -57,6 +57,50 @@ func (h *Handler) Router() http.Handler {
 			map[string]any{"method": req.Method, "path": req.URL.Path})
 	})
 
+	r.Route("/api/v1", func(r chi.Router) {
+		// Базовые middleware на все API v1 (таймауты, лимиты)
+		r.Use(appMiddleware.RequestTimeoutMiddleware(2 * time.Second))
+		r.Use(appMiddleware.BodyLimitMiddleware(1 << 20)) // 1 MiB
+
+		// Группа Авторизации: /api/v1/auth/...
+		r.Route("/auth", func(r chi.Router) {
+			r.Post("/register", h.registerUser) // Итог: POST /api/v1/auth/register
+			r.Post("/login", h.loginUser)       // Итог: POST /api/v1/auth/login
+		})
+
+		// Группа Задач: /api/v1/tasks/...
+		r.Route("/tasks", func(r chi.Router) {
+			r.Get("/", h.getAllTasks)       // Итог: GET /api/v1/tasks
+			r.Post("/", h.createTask)       // Итог: POST /api/v1/tasks
+			r.Get("/{id}", h.getTaskByID)   // Итог: GET /api/v1/tasks/{id}
+			r.Put("/{id}", h.updateTask)    // Итог: PUT /api/v1/tasks/{id}
+			r.Delete("/{id}", h.deleteTask) // Итог: DELETE /api/v1/tasks/{id}
+		})
+	})
+
+	return r
+}
+
+/*
+// Router собирает HTTP-роутер для задач.
+//
+// Здесь размещаем всё связывание путей с обработчиками.
+func (h *Handler) Router() http.Handler {
+	r := chi.NewRouter()
+
+	// NEWединый JSON контракт -- выставляем Content-Type на весь router, включая 404/405.
+	r.Use(appMiddleware.JSONHeaderMiddleware)
+
+	// NEW404/405 тоже часть контракта; возвращаем в едином JSON-формате.
+	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+		appMiddleware.WriteError(w, req, http.StatusNotFound, "not_found", "Route not found",
+			map[string]any{"path": req.URL.Path})
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+		appMiddleware.WriteError(w, req, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed",
+			map[string]any{"method": req.Method, "path": req.URL.Path})
+	})
+
 	r.Route("/api/v1/tasks", func(r chi.Router) {
 		// JSONHeaderMiddleware вешаем на весь tasks API,
 		// чтобы убрать дублирующиеся Content-Type из хендлеров.
@@ -83,7 +127,7 @@ func (h *Handler) Router() http.Handler {
 	})
 	return r
 }
-
+*/
 // getAllTasks обрабатывает GET /api/v1/tasks/
 //
 // Возвращает полный список задач в JSON.
@@ -109,7 +153,7 @@ func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// 1. ВАШ КРУТОЙ DTO И ВАЛИДАЦИЯ (ОСТАВЛЯЕМ КАК БЫЛО)
+	// 1. DTO И ВАЛИДАЦИЯ
 	var req CreateTaskRequest
 	if err := decodeJSONStrict(r, &req); err != nil {
 		h.writeDecodeError(w, r, err)
@@ -264,6 +308,83 @@ func (h *Handler) deleteTask(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) registerUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// 1. DTO и валидация
+	var req RegisterRequest
+	if err := decodeJSONStrict(r, &req); err != nil {
+		h.writeDecodeError(w, r, err)
+		return
+	}
+
+	if err := h.validate.Struct(req); err != nil {
+		appMiddleware.WriteError(w, r, http.StatusBadRequest, "validation_error", "valiation_failed",
+			validationDetails(err))
+		return
+	}
+
+	// Маппить DTO в доменную модель не нужно
+	// т.к. DTO передается непосредственно в метод Register
+	err := h.svc.Register(ctx, req)
+	if errors.Is(err, ErrUserAlreadyExists) {
+		appMiddleware.WriteError(w, r, http.StatusBadRequest, "bad_request", "Такой Email уже занят",
+			nil)
+		return
+	}
+
+	if err != nil {
+		if h.handleContextError(w, r, err) { // Проверка на таймаут контекста
+			return
+		}
+		log.Printf("request_id=%s registerUser error: %v", appMiddleware.GetRequestID(ctx), err)
+		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера", nil)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	data := map[string]string{"status": "ok"}
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func (h *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// 1. DTO и валидация
+	var req LoginRequest
+	if err := decodeJSONStrict(r, &req); err != nil {
+		h.writeDecodeError(w, r, err)
+		return
+	}
+
+	if err := h.validate.Struct(req); err != nil {
+		appMiddleware.WriteError(w, r, http.StatusBadRequest, "validation_error", "valiation_failed",
+			validationDetails(err))
+		return
+	}
+
+	token, err := h.svc.Login(ctx, req)
+	if errors.Is(err, ErrInvalidCredentials) {
+		appMiddleware.WriteError(w, r, http.StatusUnauthorized, "Unauthorized", "Неверный логин или пароль",
+			nil)
+		return
+	}
+
+	if err != nil {
+		if h.handleContextError(w, r, err) { // Проверка на таймаут контекста
+			return
+		}
+		log.Printf("request_id=%s loginUser error: %v", appMiddleware.GetRequestID(ctx), err)
+		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера", nil)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	tokenData := map[string]string{"token": token}
+	_ = json.NewEncoder(w).Encode(tokenData)
+}
+
+/*
 // parseDelayParam парсит query-параметр ?delay=...
 //
 // [CHANGE-CONTEXT] Нужен для демо отмены/таймаута.
@@ -283,13 +404,13 @@ func parseDelayParam(r *http.Request) (time.Duration, error) {
 		return 0, errors.New("delay must be >= 0")
 	}
 	return d, nil
-}
+}*/
 
 // handleContextError делает понятную обработку ошибок отмены/таймаута.
 func (h *Handler) handleContextError(w http.ResponseWriter, r *http.Request, err error) bool {
 	switch {
 	case errors.Is(err, context.Canceled):
-		// Запрос отменён: клиент ушёл ИЛИ сервер делает graceful shutdown.
+		// Запрос отменен: клиент ушел ИЛИ сервер делает graceful shutdown.
 		// Часто отвечать уже некому (соединение закрыто), поэтому просто прекращаем работу.
 		return true
 	case errors.Is(err, context.DeadlineExceeded):
