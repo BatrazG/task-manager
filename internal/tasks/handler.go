@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"task-manager/internal/middleware"
 	appMiddleware "task-manager/internal/middleware" // подключаем middleware-пакет (алиас, чтобы не путать с chi/middleware)
 
 	"github.com/go-chi/chi/v5"
@@ -128,30 +129,35 @@ func (h *Handler) Router() http.Handler {
 	return r
 }
 */
-// getAllTasks обрабатывает GET /api/v1/tasks/
-//
-// Возвращает полный список задач в JSON.
-//
-// Поддерживает демо медленного I/O: ?delay=2s (ParseDuration).
+
+// getAllTasks обрабатывает GET /api/v1/tasks.
+// Возвращает список задач, где текущий пользователь является автором или исполнителем.
 func (h *Handler) getAllTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Честно идем в сервис, который идет в Postgres
-	tasks, err := h.svc.GetAllTasks(ctx)
+	// Извлекаем ID авторизованного пользователя, записанный JWT-middleware.
+	// Используем панику приведения типов .(int), так как middleware гарантирует наличие этого значения.
+	userID := ctx.Value(middleware.UserIDKey).(int)
+
+	// Передаем userID в бизнес-логику для обеспечения изоляции данных членов семьи
+	tasks, err := h.svc.GetAllTasks(ctx, userID)
 	if err != nil {
 		if h.handleContextError(w, r, err) {
 			return
 		}
 		log.Printf("request_id=%s getAllTasks error: %v", appMiddleware.GetRequestID(ctx), err)
-		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to load tasks", nil)
+		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to get tasks", nil)
 		return
 	}
 
+	// Если список пуст, Encode автоматически отдаст клиенту корректный пустой массив []
 	_ = json.NewEncoder(w).Encode(tasks)
 }
 
 func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	userID := ctx.Value(middleware.UserIDKey).(int)
 
 	// 1. DTO И ВАЛИДАЦИЯ
 	var req CreateTaskRequest
@@ -166,11 +172,19 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Если исполнитель не указывается при создании,
+	// то исполнителем назначается создатель задачи
+	if req.AssignedTo == 0 {
+		req.AssignedTo = userID
+	}
+
 	// 2. Маппим DTO в доменную модель
 	incoming := Task{
-		Title:    req.Title,
-		Done:     req.Done,
-		Priority: req.Priority,
+		UserID:     userID,
+		AssignedTo: req.AssignedTo,
+		Title:      req.Title,
+		Done:       req.Done,
+		Priority:   req.Priority,
 	}
 
 	// 3. Отправляем в сервис по указателю (тут запишется новый ID)
@@ -184,7 +198,7 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. ИСПРАВЛЕННЫЙ ОТВЕТ (Используем incoming вместо created)
+	// 4. Формируем ответ
 	w.Header().Set("Location", fmt.Sprintf("/api/v1/tasks/%d", incoming.ID))
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(incoming)
@@ -194,17 +208,23 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 //
 // Находит задачу по ID и возвращает её.
 func (h *Handler) getTaskByID(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context() // [CHANGE-CONTEXT]
+	ctx := r.Context()
 
+	// Извлекаем ID авторизованного пользователя, записанный JWT-middleware.
+	// Используем панику приведения типов .(int), так как middleware гарантирует наличие этого значения.
+	userID := ctx.Value(middleware.UserIDKey).(int)
+
+	// Парсим id задачи из запроса
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		appMiddleware.WriteError(w, r, http.StatusBadRequest, "bad_request", "Invalid ID",
-			map[string]any{"id": idStr}) // NEW-TEACH
+			map[string]any{"id": idStr})
 		return
 	}
 
-	task, err := h.svc.GetTaskByID(ctx, id)
+	// Передаем UserID в бизнес-логику для обеспеения изоляции данных
+	task, err := h.svc.GetTaskByID(ctx, id, userID)
 	if errors.Is(err, ErrTaskNotFound) {
 		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
 			map[string]any{"id": id}) // NEW-TEACH
@@ -230,6 +250,10 @@ func (h *Handler) getTaskByID(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// Извлекаем ID авторизованного пользователя, записанный JWT-middleware.
+	// Используем панику приведения типов .(int), так как middleware гарантирует наличие этого значения.
+	userID := ctx.Value(middleware.UserIDKey).(int)
+
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -238,7 +262,7 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// NEW: PUT валидируем через DTO, чтобы контракт был таким же строгим, как в POST.
+	// PUT валидируем через DTO, чтобы контракт был таким же строгим, как в POST.
 	var req UpdateTaskRequest
 	if err := decodeJSONStrict(r, &req); err != nil {
 		h.writeDecodeError(w, r, err)
@@ -253,12 +277,13 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 
 	incoming := Task{
 		ID:       id,
+		UserID:   userID,
 		Title:    req.Title,
 		Done:     req.Done,
 		Priority: req.Priority,
 	}
 
-	err = h.svc.UpdateTask(ctx, &incoming)
+	err = h.svc.UpdateTask(ctx, &incoming, userID)
 	if errors.Is(err, ErrTaskNotFound) {
 		// Если задача с запрашиваемым ID не найдена
 		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
@@ -283,6 +308,10 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
+	// Извлекаем ID авторизованного пользователя, записанный JWT-middleware.
+	// Используем панику приведения типов .(int), так как middleware гарантирует наличие этого значения.
+	userID := ctx.Value(middleware.UserIDKey).(int)
+
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -291,7 +320,7 @@ func (h *Handler) deleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.svc.DeleteTask(ctx, id)
+	err = h.svc.DeleteTask(ctx, id, userID)
 	if errors.Is(err, ErrTaskNotFound) {
 		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
 			map[string]any{"id": id}) // NEW

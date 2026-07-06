@@ -37,36 +37,38 @@ func (s *Service) CreateTask(ctx context.Context, task *Task) error {
 	return s.repo.Create(ctx, task)
 }
 
-func (s *Service) GetTaskByID(ctx context.Context, id int) (*Task, error) {
+func (s *Service) GetTaskByID(ctx context.Context, id int, userID int) (*Task, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	return s.repo.GetByID(ctx, id)
+	return s.repo.GetByID(ctx, id, userID)
 }
 
-func (s *Service) GetAllTasks(ctx context.Context) ([]Task, error) {
+func (s *Service) GetAllTasks(ctx context.Context, userID int) ([]Task, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	return s.repo.GetAll(ctx)
+	return s.repo.GetAll(ctx, userID)
 }
 
-func (s *Service) UpdateTask(ctx context.Context, task *Task) error {
+func (s *Service) UpdateTask(ctx context.Context, task *Task, userID int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Защита от возможной подмены
+	task.UserID = userID
+
+	return s.repo.Update(ctx, task, userID)
+}
+
+func (s *Service) DeleteTask(ctx context.Context, id int, userID int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	return s.repo.Update(ctx, task)
-}
-
-func (s *Service) DeleteTask(ctx context.Context, id int) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	return s.repo.Delete(ctx, id)
+	return s.repo.Delete(ctx, id, userID)
 }
 
 func (s *Service) Register(ctx context.Context, req RegisterRequest) error {
