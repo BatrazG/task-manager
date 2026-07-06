@@ -8,16 +8,16 @@ type TaskRepository interface {
 	Create(ctx context.Context, task *Task) error
 
 	// 2. Получить задачу по ID. Возвращает указатель на задачу и ошибку.
-	GetByID(ctx context.Context, id int) (*Task, error)
+	GetByID(ctx context.Context, id int, userID int) (*Task, error)
 
 	// 3. Получить все задачи. Возвращает слайс.
-	GetAll(ctx context.Context) ([]Task, error)
+	GetAll(ctx context.Context, userID int) ([]Task, error)
 
 	// 4. Обновить задачу.
-	Update(ctx context.Context, task *Task) error
+	Update(ctx context.Context, task *Task, userID int) error
 
 	// 5. Удалить задачу по ID.
-	Delete(ctx context.Context, id int) error
+	Delete(ctx context.Context, id int, userID int) error
 
 	// 6. Создать нового пользователя
 	CreateUser(ctx context.Context, user *User) error

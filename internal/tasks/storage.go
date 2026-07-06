@@ -136,7 +136,7 @@ func (ts *TaskStore) Create(ctx context.Context, task *Task) error {
 }
 
 // Возвращает слайс со всем задачами из БД
-func (ts *TaskStore) GetAll(ctx context.Context) ([]Task, error) {
+func (ts *TaskStore) GetAll(ctx context.Context, userrID int) ([]Task, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (ts *TaskStore) GetAll(ctx context.Context) ([]Task, error) {
 }
 
 // Ищет и возвращает задачу по ID
-func (ts *TaskStore) GetByID(ctx context.Context, id int) (*Task, error) {
+func (ts *TaskStore) GetByID(ctx context.Context, id int, userID int) (*Task, error) {
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -171,7 +171,7 @@ func (ts *TaskStore) GetByID(ctx context.Context, id int) (*Task, error) {
 }
 
 // Update обновляет сущетвующую задачу
-func (ts *TaskStore) Update(ctx context.Context, task *Task) error {
+func (ts *TaskStore) Update(ctx context.Context, task *Task, userID int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func (ts *TaskStore) Update(ctx context.Context, task *Task) error {
 }
 
 // Delete Удаляет задачу по id
-func (ts *TaskStore) Delete(ctx context.Context, id int) error {
+func (ts *TaskStore) Delete(ctx context.Context, id int, userID int) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
