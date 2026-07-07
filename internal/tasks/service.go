@@ -71,6 +71,22 @@ func (s *Service) DeleteTask(ctx context.Context, id int, userID int) error {
 	return s.repo.Delete(ctx, id, userID)
 }
 
+func (s *Service) CreateSubTask(ctx context.Context, subtask *SubTask, userID int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	_, err := s.repo.GetByID(ctx, subtask.TaskID, userID)
+	if errors.Is(err, ErrTaskNotFound) {
+		return err
+	}
+	if err != nil {
+		return err
+	}
+
+	return s.repo.CreateSubtask(ctx, subtask)
+}
+
+// Register - бизнес-логика регистрации пользователя
 func (s *Service) Register(ctx context.Context, req RegisterRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err

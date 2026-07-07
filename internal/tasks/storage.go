@@ -234,12 +234,16 @@ func (ts *TaskStore) Delete(ctx context.Context, id int, userID int) error {
 	return ts.SaveTasks(ctx, tasks)
 }
 
-// 6. Создать нового пользователя
+func (ts *TaskStore) CreateSubtask(ctx context.Context, subtask *SubTask) error {
+	return nil
+}
+
+// Создать нового пользователя
 func (ts *TaskStore) CreateUser(ctx context.Context, user *User) error {
 	return nil
 }
 
-// 7. Ищет пользователя по email и возвращает заполненную структуру.
+// Ищет пользователя по email и возвращает заполненную структуру.
 func (ts *TaskStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	return nil, nil
 }
