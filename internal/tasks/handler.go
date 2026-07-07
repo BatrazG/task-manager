@@ -71,64 +71,17 @@ func (h *Handler) Router() http.Handler {
 
 		// Группа Задач: /api/v1/tasks/...
 		r.Route("/tasks", func(r chi.Router) {
-			r.Get("/", h.getAllTasks)       // Итог: GET /api/v1/tasks
-			r.Post("/", h.createTask)       // Итог: POST /api/v1/tasks
-			r.Get("/{id}", h.getTaskByID)   // Итог: GET /api/v1/tasks/{id}
-			r.Put("/{id}", h.updateTask)    // Итог: PUT /api/v1/tasks/{id}
-			r.Delete("/{id}", h.deleteTask) // Итог: DELETE /api/v1/tasks/{id}
+			r.Get("/", h.getAllTasks)                // Итог: GET /api/v1/tasks
+			r.Post("/", h.createTask)                // Итог: POST /api/v1/tasks
+			r.Get("/{id}", h.getTaskByID)            // Итог: GET /api/v1/tasks/{id}
+			r.Put("/{id}", h.updateTask)             // Итог: PUT /api/v1/tasks/{id}
+			r.Delete("/{id}", h.deleteTask)          // Итог: DELETE /api/v1/tasks/{id}
+			r.Put("/{id}/subtasks", h.createSubTask) // Итог: Put /api/v1/tasks/{id}/subtasks
 		})
 	})
 
 	return r
 }
-
-/*
-// Router собирает HTTP-роутер для задач.
-//
-// Здесь размещаем всё связывание путей с обработчиками.
-func (h *Handler) Router() http.Handler {
-	r := chi.NewRouter()
-
-	// NEWединый JSON контракт -- выставляем Content-Type на весь router, включая 404/405.
-	r.Use(appMiddleware.JSONHeaderMiddleware)
-
-	// NEW404/405 тоже часть контракта; возвращаем в едином JSON-формате.
-	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
-		appMiddleware.WriteError(w, req, http.StatusNotFound, "not_found", "Route not found",
-			map[string]any{"path": req.URL.Path})
-	})
-	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
-		appMiddleware.WriteError(w, req, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed",
-			map[string]any{"method": req.Method, "path": req.URL.Path})
-	})
-
-	r.Route("/api/v1/tasks", func(r chi.Router) {
-		// JSONHeaderMiddleware вешаем на весь tasks API,
-		// чтобы убрать дублирующиеся Content-Type из хендлеров.
-		// r.Use(appMiddleware.JSONHeaderMiddleware)
-
-		// Таймаут на каждый запрос tasks API.
-		// Для демо удобно держать небольшим, чтобы легко ловить DeadlineExceeded.
-		r.Use(appMiddleware.RequestTimeoutMiddleware(2 * time.Second))
-
-		// NEW-TEACH: базовая защита от слишком больших request body (устойчивость сервиса).
-		r.Use(appMiddleware.BodyLimitMiddleware(1 << 20)) // 1 MiB
-
-		// GET / (список), POST / (создание)
-		r.Get("/", h.getAllTasks)
-		r.Post("/", h.createTask)
-
-		// GET /{id}
-		r.Get("/{id}", h.getTaskByID)
-
-		// PUT: обновление
-		r.Put("/{id}", h.updateTask)
-
-		r.With(appMiddleware.BasicAuthMiddleware).Delete("/{id}", h.deleteTask)
-	})
-	return r
-}
-*/
 
 // getAllTasks обрабатывает GET /api/v1/tasks.
 // Возвращает список задач, где текущий пользователь является автором или исполнителем.
@@ -294,7 +247,7 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 		if h.handleContextError(w, r, err) {
 			return
 		}
-		log.Printf("request_id=%s updateTask error: %v", appMiddleware.GetRequestID(ctx), err) // NEW-TEACH
+		log.Printf("request_id=%s updateTask error: %v", appMiddleware.GetRequestID(ctx), err)
 		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to save tasks", nil)
 		return
 	}
@@ -335,6 +288,61 @@ func (h *Handler) deleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) createSubTask(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID := ctx.Value(middleware.UserIDKey).(int)
+
+	taskIDStr := chi.URLParam(r, "id")
+	taskID, err := strconv.Atoi(taskIDStr)
+	if err != nil {
+		appMiddleware.WriteError(w, r, http.StatusBadRequest, "bad_request", "Invalid Task ID",
+			map[string]any{"id": taskIDStr})
+		return
+	}
+
+	var req CreateSubTaskRequest
+	err = decodeJSONStrict(r, &req)
+	if err != nil {
+		appMiddleware.WriteError(w, r, http.StatusBadRequest, "validation_error", "Validation failed",
+			validationDetails(err))
+		return
+	}
+
+	if err = h.validate.Struct(req); err != nil {
+		appMiddleware.WriteError(w, r, http.StatusBadRequest, "validation_error", "Validation failed",
+			validationDetails(err))
+		return
+	}
+
+	incoming := SubTask{
+		TaskID: taskID, // Сюда передаем ID из URL
+		Title:  req.Title,
+		Done:   false, // Новая покупка всегда не выполнена по умолчанию
+	}
+
+	err = h.svc.CreateSubTask(ctx, &incoming, userID)
+
+	if errors.Is(err, ErrTaskNotFound) {
+		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "Task not found",
+			map[string]any{"id": taskID})
+		return
+	}
+
+	if err != nil {
+		if h.handleContextError(w, r, err) {
+			return
+		}
+		log.Printf("request_id=%s updateTask error: %v", appMiddleware.GetRequestID(ctx), err)
+		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to save subtask", nil)
+		return
+	}
+
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/tasks/%d", incoming.ID))
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(incoming)
 }
 
 func (h *Handler) registerUser(w http.ResponseWriter, r *http.Request) {
@@ -412,28 +420,6 @@ func (h *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
 	tokenData := map[string]string{"token": token}
 	_ = json.NewEncoder(w).Encode(tokenData)
 }
-
-/*
-// parseDelayParam парсит query-параметр ?delay=...
-//
-// [CHANGE-CONTEXT] Нужен для демо отмены/таймаута.
-// Например: ?delay=2s или ?delay=200ms.
-func parseDelayParam(r *http.Request) (time.Duration, error) {
-	raw := r.URL.Query().Get("delay")
-	if raw == "" {
-		return 0, nil
-	}
-
-	d, err := time.ParseDuration(raw)
-	if err != nil {
-		return 0, err
-	}
-
-	if d < 0 {
-		return 0, errors.New("delay must be >= 0")
-	}
-	return d, nil
-}*/
 
 // handleContextError делает понятную обработку ошибок отмены/таймаута.
 func (h *Handler) handleContextError(w http.ResponseWriter, r *http.Request, err error) bool {

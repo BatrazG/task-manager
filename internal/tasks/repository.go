@@ -3,27 +3,30 @@ package tasks
 import "context"
 
 type TaskRepository interface {
-	// 1. Создать задачу. Должен принимать указатель на Task,
+	// Создать задачу. Должен принимать указатель на Task,
 	// чтобы внутри метода можно было присвоить задаче сгенерированный ID.
 	Create(ctx context.Context, task *Task) error
 
-	// 2. Получить задачу по ID. Возвращает указатель на задачу и ошибку.
+	// Получить задачу по ID. Возвращает указатель на задачу и ошибку.
 	GetByID(ctx context.Context, id int, userID int) (*Task, error)
 
-	// 3. Получить все задачи. Возвращает слайс.
+	// Получить все задачи. Возвращает слайс.
 	GetAll(ctx context.Context, userID int) ([]Task, error)
 
-	// 4. Обновить задачу.
+	// Обновить задачу.
 	Update(ctx context.Context, task *Task, userID int) error
 
-	// 5. Удалить задачу по ID.
+	// Удалить задачу по ID.
 	Delete(ctx context.Context, id int, userID int) error
 
-	// 6. Создать нового пользователя
+	// Создать нового пользователя
 	CreateUser(ctx context.Context, user *User) error
 
-	// 7. Ищет пользователя по email и возвращает заполненную структуру.
+	// Ищет пользователя по email и возвращает заполненную структуру.
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
+
+	// CreateSubtask создает подзадачу, привязанную к задаче
+	CreateSubtask(ctx context.Context, subtask *SubTask) error
 }
 
 // calcNextID — helper для корректного nextID после чтения из  JSON файла.

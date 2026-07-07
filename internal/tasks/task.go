@@ -19,6 +19,17 @@ type Task struct {
 
 	// Priority — уровень важности задачи (принимает значения: low, medium, high).
 	Priority string `json:"priority"`
+
+	// SubTasks - список подзадач(пунктов чек-листа), привязанных к этой задаче
+	SubTasks []SubTask `json:"subtasks"`
+}
+
+// Subtask описывает доменную модель подзадачи в системе.
+type SubTask struct {
+	ID     int    `json:"id"`
+	TaskID int    `json:"task_id"`
+	Title  string `json:"title"`
+	Done   bool   `json:"done"`
 }
 
 type CreateTaskRequest struct {
@@ -33,6 +44,10 @@ type UpdateTaskRequest struct {
 	Title    string `json:"title" validate:"required,max=100"`
 	Done     bool   `json:"done"`
 	Priority string `json:"priority" validate:"required,oneof=low medium high"`
+}
+
+type CreateSubTaskRequest struct {
+	Title string `json:"title" validate:"required,max=100"`
 }
 
 // Делать разные DTO для разных эндпоинтов - правильная практика

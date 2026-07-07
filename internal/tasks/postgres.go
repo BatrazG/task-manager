@@ -38,19 +38,68 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id int, userID int) (*
 		return nil, err
 	}
 
-	var t Task
-	query := "SELECT id, user_id, assigned_to, title, done, priority FROM tasks WHERE id = $1 AND (user_id = $2 OR assigned_to = $2)"
-	err := r.db.QueryRowContext(ctx, query, id, userID).Scan(&t.ID, &t.UserID, &t.AssignedTo, &t.Title, &t.Done, &t.Priority)
-
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrTaskNotFound
-	}
-
+	query := `SELECT t.id, t.user_id, t.assigned_to, t.title, t.done, t.priority, s.id, s.task_id, s.title, s.done
+	FROM   tasks t
+	LEFT JOIN subtasks s ON t.ID = s.tasks_id
+	WHERE t.id = $1 AND (t.user_id = $2 OR t.assigned_to = $2)`
+	rows, err := r.db.QueryContext(ctx, query, id, userID)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	return &t, nil
+	var task *Task
+	for rows.Next() {
+		// Создаем временные переменные для полей подзадачи на случай, если у задачи нет подзадач.
+		// Зачем: если у задачи НЕТ подзадач, LEFT JOIN вернет в этих полях NULL.
+		// Обычные типы int и string упадут с ошибкой при сканировании NULL.
+		var sID sql.NullInt64
+		var sTaskID sql.NullInt64
+		var sTitle sql.NullString
+		var sDone sql.NullBool
+
+		var t Task
+
+		err := rows.Scan(
+			&t.ID, &t.UserID, &t.AssignedTo, &t.Title, &t.Done, &t.Priority,
+			&sID, &sTaskID, &sTitle, &sDone,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Если это САМАЯ ПЕРВАЯ строка, инициализируем наш итоговый объект task.
+		// Во всех следующих строках данные задачи будут дублироваться, мы их просто игнорируем.
+		if task == nil {
+			task = &t
+			// Инициализируем слайс подзадач, чтобы фронтенд получил [] вместо null, если чек-лист пуст
+			task.SubTasks = make([]SubTask, 0)
+		}
+
+		// Проверяем: если sID.Valid == true, значит в этой строке РЕАЛЬНО есть подзадача (не NULL)
+		if sID.Valid {
+			sub := SubTask{
+				ID:     int(sID.Int64),
+				TaskID: int(sTaskID.Int64),
+				Title:  sTitle.String,
+				Done:   sDone.Bool,
+			}
+			// Добавляем подзадачу в слайс нашей основной задачи
+			task.SubTasks = append(task.SubTasks, sub)
+		}
+	}
+
+	// Проверяем, не прервался ли цикл из-за ошибки базы
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Если после цикла переменная task осталась nil — значит, база не вернула ни одной строки (задача не найдена)
+	if task == nil {
+		return nil, ErrTaskNotFound
+	}
+
+	return task, nil
 }
 
 // 3. Получить все задачи. Возвращает слайс.
@@ -146,4 +195,20 @@ func (r *PostgresRepository) GetUserByEmail(ctx context.Context, email string) (
 		return nil, err
 	}
 	return &u, nil
+}
+
+// Создать подзадачу
+func (r *PostgresRepository) CreateSubtask(ctx context.Context, subtask *SubTask) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	err := r.db.QueryRowContext(ctx, "INSERT INTO subtasks (task_id, title, done) VALUES ($1, $2, $3) RETURNING id",
+		subtask.TaskID, subtask.Title, subtask.Done).Scan(&subtask.ID)
+
+	if err != nil {
+		return err
+	}
+	return nil
+
 }
