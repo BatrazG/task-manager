@@ -12,7 +12,7 @@ import (
 // LoggingMiddleware измеряет время обработки запроса и пишет запись в лог
 // после того, как основной обработчик завершил работу.
 //
-// Важно: логирование идёт "после" next.ServeHTTP, поэтому в duration входит
+// Важно: логирование идет "после" next.ServeHTTP, поэтому в duration входит
 // вся обработка запроса обработчиком и другими middleware внутри цепочки.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

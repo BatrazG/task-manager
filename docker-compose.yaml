@@ -1,0 +1,51 @@
+services:
+  # ==========================================
+  # СЕРВИС 1: Наша база данных PostgreSQL
+  # ==========================================
+  postgres_db:
+    image: postgres:15-alpine # Берем легкий официальный образ Postgres 15
+    container_name: family_tasks_db
+    environment:
+      POSTGRES_USER: tasks_user
+      POSTGRES_PASSWORD: SecretPassword2026
+      POSTGRES_DB: family_tasks
+    ports:
+      - "5432:5432" # Пробрасываем порт: "внешний_в_Windows:внутренний_в_контейнере"
+    volumes:
+      - pgdata:/var/lib/postgresql/data # Заначка для данных (чтобы при перезапуске контейнера база не стиралась)
+    networks:
+      - family_network
+
+  # ==========================================
+  # СЕРВИС 2: Наш Go бэкенд-сервер
+  # ==========================================
+  task_server:
+    build:
+      context: .
+      dockerfile: Dockerfile # Говорим собрать контейнер по нашему Dockerfile
+    container_name: family_tasks_server
+    ports:
+      - "8080:8080" # Открываем наружу порт нашего Go-сервера
+    environment:
+      # ВНИМАНИЕ: Вместо localhost пишем имя сервиса базы данных! Docker сам свяжет их по сети.
+      STORAGE_PATH: "postgres"
+      DB_HOST: postgres_db 
+      DB_PORT: 5432
+      DB_USER: tasks_user
+      DB_PASSWORD: SecretPassword2026
+      DB_NAME: family_tasks
+      DB_SSLMODE: disable
+      JWT_SECRET: SuperSecretFamilyKey2026
+      REGISTRATION_INVITE_CODE: CheshikKesha
+    depends_on:
+      - postgres_db # Сервер не запустится, пока не поднимется контейнер с базой
+    networks:
+      - family_network
+
+# Объявляем виртуальные ресурсы, которые используются сервисами выше
+volumes:
+  pgdata: # Выделяем изолированное место на диске для постоянного хранения данных БД
+
+networks:
+  family_network: # Создаем закрытую внутреннюю сеть для общения контейнеров между собой
+    driver: bridge
