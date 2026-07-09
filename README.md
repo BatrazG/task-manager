@@ -1,70 +1,91 @@
-# Task Manager (Go) — учебный REST API
+# Семейный Таск-Менеджер (Family Task Manager API)
 
-Учебный проект для отработки тем Web/HTTP на Go: роутинг, CRUD, middleware, context, graceful shutdown.
+Бэкенд-сервер упакован в Docker-контейнер и по умолчанию доступен по адресу: `http://localhost:8080`
+Все запросы должны обязательно содержать заголовок: `Content-Type: application/json`
 
-## Run
+---
 
-```bash
-go run ./cmd/task-server
+## 1. АВТОРИЗАЦИЯ (Открытая группа)
 
-Config (ENV)
-HTTP_PORT — порт (default: 8080)
-STORAGE_PATH — путь к файлу (default: tasks.json)
-API (for frontend)
-Base URL
-http://localhost:8080
-Request ID
-Сервис поддерживает X-Request-ID:
-если клиент прислал X-Request-ID — сервис пробросит его дальше и вернёт в ответе
-если нет — сервис сгенерирует и вернёт
-Error format (единый)
-Любая ошибка возвращается в JSON:
+### Регистрация нового пользователя
+* **URL:** `POST /api/v1/auth/register`
+* **Тело запроса (JSON):**
+```json
 {
-  "error": {
-    "code": "validation_error",
-    "message": "Validation failed",
-    "request_id": "demo-req-123",
-    "details": [
-      {"field": "Priority", "rule": "oneof"}
-    ]
-  }
+  "email": "user@family.com",
+  "password": "StrongPassword123",
+  "invite_code": "CheshikKesha"
 }
+```
+* **Ответ (201 Created):** Пользователь успешно создан.
 
-Endpoints
-GET /api/v1/tasks
-Опционально: ?delay=200ms или ?delay=2s (учебная симуляция медленного I/O)
-Response 200:
+### Вход в систему (Получение токена)
+* **URL:** `POST /api/v1/auth/login`
+* **Тело запроса (JSON):**
+```json
+{
+  "email": "user@family.com",
+  "password": "StrongPassword123"
+}
+```
+* **Ответ (200 OK):**
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+---
+
+## 2. ЗАДАЧИ (Закрытая группа)
+
+> **ВАЖНО:** Все запросы к методам ниже обязаны содержать заголовок авторизации:
+> `Authorization: Bearer <ваш_токен>`
+
+### Получить список всех задач семьи
+* **URL:** `GET /api/v1/tasks`
+* **Ответ (200 OK):** Возвращает массив задач, где текущий пользователь является автором или исполнителем.
+```json
 [
-  {"id":1,"title":"Write Unit Tests","done":false,"priority":"high"}
+  {
+    "id": 1,
+    "user_id": 42,
+    "assigned_to": 42,
+    "title": "Купить продукты на рынке",
+    "done": false,
+    "priority": "high",
+    "subtasks": []
+  }
 ]
+```
 
-POST /api/v1/tasks
-Request:
-{"title":"Write Unit Tests","done":false,"priority":"high"}
+### Создать новую задачу
+* **URL:** `POST /api/v1/tasks`
+* **Тело запроса (JSON):** Поле `assigned_to` необязательное (если пустое — исполнителем станет сам создатель).
+```json
+{
+  "title": "Починить кран в ванной",
+  "assigned_to": 0,
+  "done": false,
+  "priority": "medium"
+}
+```
+* **Ответ (201 Created):** Возвращает созданную задачу с присвоенным ID.
 
-Response 201 (header Location: /api/v1/tasks/{id}):
-{"id":1,"title":"Write Unit Tests","done":false,"priority":"high"}
-
-GET /api/v1/tasks/{id}
-Response 200:
-{"id":1,"title":"Write Unit Tests","done":false,"priority":"high"}
-
-Response 404 (если нет задачи)
-PUT /api/v1/tasks/{id}
-Request:
-{"title":"Updated","done":true,"priority":"low"}
-
-Response 200:
-{"id":1,"title":"Updated","done":true,"priority":"low"}
-
-DELETE /api/v1/tasks/{id}
-Защищено Basic Auth:
-username: admin
-password: secret
-Response 204 (no content)
-Manual testing
-См. набор cURL команд в материалах урока / или используйте openapi.yaml.
-Tests
-go test ./... -v
-
-
+### Добавить пункт чек-листа (Подзадачу)
+* **URL:** `POST /api/v1/tasks/{id}/subtasks` (где `{id}` — это ID большой задачи)
+* **Тело запроса (JSON):**
+```json
+{
+  "title": "Купить прокладку для смесителя"
+}
+```
+* **Ответ (201 Created):** Возвращает созданную подзадачу.
+```json
+{
+  "id": 12,
+  "task_id": 5,
+  "title": "Купить прокладку для смесителя",
+  "done": false
+}
+```

@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: SecretPassword2026
       POSTGRES_DB: family_tasks
     ports:
-      - "5432:5432" # Пробрасываем порт: "внешний_в_Windows:внутренний_в_контейнере"
+      - "5433:5432" # Пробрасываем порт: "внешний_в_Windows:внутренний_в_контейнере"
     volumes:
       - pgdata:/var/lib/postgresql/data # Заначка для данных (чтобы при перезапуске контейнера база не стиралась)
     networks:

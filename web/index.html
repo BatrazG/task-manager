@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <!-- Важнейший тег для смартфонов, чтобы интерфейс не сжимался, а адаптировался -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Семейный Таск-Менеджер</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- БЛОК АВТОРИЗАЦИИ -->
+        <div id="auth-block" class="card">
+            <h2 id="auth-title">Вход в систему</h2>
+            
+            <form id="auth-form">
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" required placeholder="example@family.com">
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Пароль</label>
+                    <input type="password" id="password" required placeholder="Введите пароль">
+                </div>
+
+                <!-- Скрытое по умолчанию поле инвайт-кода, нужно только для регистрации -->
+                <div class="form-group hidden" id="invite-group">
+                    <label for="invite_code">Семейный инвайт-код</label>
+                    <input type="text" id="invite_code" placeholder="Код вашей семьи">
+                </div>
+
+                <button type="submit" id="submit-btn" class="btn">Войти</button>
+            </form>
+
+            <div class="auth-toggle">
+                <span id="toggle-text">Еще нет аккаунта?</span>
+                <a href="#" id="toggle-link">Зарегистрироваться</a>
+            </div>
+        </div>
+
+        <!-- БЛОК ЗАДАЧ (Скрыт по умолчанию до успешного логина) -->
+        <div id="app-block" class="card hidden">
+            <h2>Наши семейные задачи</h2>
+            <p>Вы успешно авторизованы! Здесь скоро будет список задач.</p>
+            <button id="logout-btn" class="btn btn-secondary">Выйти из аккаунта</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
