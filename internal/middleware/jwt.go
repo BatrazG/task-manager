@@ -33,7 +33,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// 1. Приводим claims к типу jwt.MapClaims
+		// Приводим claims к типу jwt.MapClaims
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			// Если по какой-то причине claims не того типа, прерываем запрос
@@ -41,24 +41,24 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// 2. Безопасно достаем user_id
+		// Безопасно достаем user_id
 		userIDFloat, ok := claims["user_id"].(float64) // Сначала приводим строго к float64!
 		if !ok {
 			WriteError(w, r, http.StatusUnauthorized, "unauthorized", "User ID not found in token", nil)
 			return
 		}
 
-		// 3. Превращаем float64 в привычный int
+		// Превращаем float64 в привычный int
 		userID := int(userIDFloat)
 
-		// 1. Берем текущий контекст, который прилетел вместе с запросом r
+		// Берем текущий контекст, который прилетел вместе с запросом r
 		ctx := r.Context()
 
-		// 2. Создаем на его основе новый контекст, положив туда пару Ключ -> Значение
+		// Создаем на его основе новый контекст, положив туда пару Ключ -> Значение
 		// Для ключа мы используем специальную константу UserIDKey
 		newCtx := context.WithValue(ctx, UserIDKey, userID)
 
-		// 3. Пробрасываем запрос дальше, обернув его в этот новый контекст
+		// Пробрасываем запрос дальше, обернув его в этот новый контекст
 		next.ServeHTTP(w, r.WithContext(newCtx))
 
 	})

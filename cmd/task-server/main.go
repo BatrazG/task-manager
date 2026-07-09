@@ -57,8 +57,20 @@ func main() {
 		}
 		defer db.Close()
 
-		if err := db.Ping(); err != nil {
-			log.Fatalf("БД недоступна: %v", err)
+		// Пытаемся достучаться до базы данных 5 раз с паузой в 2 секунды
+		// Т.к. легкое приложение го стартует гораздо быстрее СУБД
+		var pingErr error
+		for attempts := 1; attempts <= 5; attempts++ {
+			log.Printf("Проверка доступности БД (попытка %d из 5)...", attempts)
+			pingErr = db.Ping()
+			if pingErr == nil {
+				break // Ура! База ответила, выходим из цикла
+			}
+			time.Sleep(2 * time.Second) // Ждем 2 секунды перед следующей попыткой
+		}
+
+		if pingErr != nil {
+			log.Fatalf("БД так и не ответила после 5 попыток: %v", pingErr)
 		}
 
 		repo = tasks.NewPostgresRepository(db)
