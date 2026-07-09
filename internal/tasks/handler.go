@@ -17,7 +17,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
-	"github.com/rs/cors"
 )
 
 // Теперь Handler - HTTP слой модуля задач
@@ -40,16 +39,20 @@ func NewHandler(svc *Service) *Handler {
 	}
 }
 
-// Router собирает HTTP-роутер для задач.
-//
-// Здесь размещаем всё связывание путей с обработчиками.
 func (h *Handler) Router() http.Handler {
 	r := chi.NewRouter()
 
-	// единый JSON контракт -- выставляем Content-Type на весь router, включая 404/405.
-	r.Use(appMiddleware.JSONHeaderMiddleware)
+	// =========================================================================
+	// ГЛОБАЛЬНАЯ ЦЕПОЧКА MIDDLEWARE
+	// =========================================================================
+	r.Use(appMiddleware.RequestIDMiddleware)                       // 1. Сквозной ID
+	r.Use(appMiddleware.LoggingMiddleware)                         // 2. Логгер статус-кодов
+	r.Use(appMiddleware.NewCORSMiddleware())                       // 3. CORS-фильтр (внутри папки internal/middleware)
+	r.Use(appMiddleware.JSONHeaderMiddleware)                      // 4. JSON заголовок
+	r.Use(appMiddleware.BodyLimitMiddleware(1 << 20))              // 5. Ограничение тела в 1 МБ
+	r.Use(appMiddleware.RequestTimeoutMiddleware(2 * time.Second)) // 6. Таймаут 2 секунды
 
-	// 404/405 тоже часть контракта; возвращаем в едином JSON-формате.
+	// Настройка системных ответов 404/405
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		appMiddleware.WriteError(w, req, http.StatusNotFound, "not_found", "Route not found",
 			map[string]any{"path": req.URL.Path})
@@ -59,41 +62,27 @@ func (h *Handler) Router() http.Handler {
 			map[string]any{"method": req.Method, "path": req.URL.Path})
 	})
 
+	// =========================================================================
+	// МАРШРУТЫ API V1
+	// =========================================================================
 	r.Route("/api/v1", func(r chi.Router) {
-		// Базовые middleware на все API v1 (таймауты, лимиты)
-		r.Use(appMiddleware.RequestTimeoutMiddleware(2 * time.Second))
-		r.Use(appMiddleware.BodyLimitMiddleware(1 << 20)) // 1 MiB
 
-		// Настройка CORS: разрешаем фронтенду общаться с нашим API
-		r.Use(cors.New(cors.Options{
-			AllowedOrigins: []string{"*"},
-			AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-
-			// 1. Разрешаем фронтенду присылать свой ID запроса, если он захочет
-			AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID"},
-
-			// 2. ВАЖНО: Разрешаем браузеру показать фронтенду наш заголовок X-Request-ID в ответе
-			ExposedHeaders: []string{"Link", "X-Request-ID"},
-
-			AllowCredentials: true,
-			MaxAge:           300,
-		}).Handler)
-
-		// Группа Авторизации: /api/v1/auth/...
+		// Группа Авторизации (Открытая)
 		r.Route("/auth", func(r chi.Router) {
-			r.Post("/register", h.registerUser) // Итог: POST /api/v1/auth/register
-			r.Post("/login", h.loginUser)       // Итог: POST /api/v1/auth/login
+			r.Post("/register", h.registerUser)
+			r.Post("/login", h.loginUser)
 		})
 
-		// Группа Задач: /api/v1/tasks/...
+		// Группа Задач (Закрытая семейным токеном)
 		r.Route("/tasks", func(r chi.Router) {
-			r.Use(middleware.AuthMiddleware)
-			r.Get("/", h.getAllTasks)                 // Итог: GET /api/v1/tasks
-			r.Post("/", h.createTask)                 // Итог: POST /api/v1/tasks
-			r.Get("/{id}", h.getTaskByID)             // Итог: GET /api/v1/tasks/{id}
-			r.Put("/{id}", h.updateTask)              // Итог: PUT /api/v1/tasks/{id}
-			r.Delete("/{id}", h.deleteTask)           // Итог: DELETE /api/v1/tasks/{id}
-			r.Post("/{id}/subtasks", h.createSubTask) // Итог: Put /api/v1/tasks/{id}/subtasks
+			r.Use(appMiddleware.AuthMiddleware) // <--- ИСПРАВИЛИ ПРЕФИКС НА appMiddleware!
+
+			r.Get("/", h.getAllTasks)
+			r.Post("/", h.createTask)
+			r.Get("/{id}", h.getTaskByID)
+			r.Put("/{id}", h.updateTask)
+			r.Delete("/{id}", h.deleteTask)
+			r.Post("/{id}/subtasks", h.createSubTask)
 		})
 	})
 
