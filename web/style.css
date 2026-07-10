@@ -134,3 +134,270 @@ input:focus {
 .hidden {
     display: none !important;
 }
+
+/* =========================================================================
+   6. ИНТЕРФЕЙС ПРИЛОЖЕНИЯ (Расширяем карточку для списка задач)
+   ========================================================================= */
+.app-card {
+    max-width: 400px; /* Списку задач нужно чуть больше простора */
+    width: 100%;
+}
+
+.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    border-bottom: 1.5px solid #f0f0f0;
+    padding-bottom: 12px;
+}
+
+.app-header h2 {
+    margin-bottom: 0;
+    font-size: 22px;
+}
+
+.btn-logout {
+    background: none;
+    border: none;
+    color: #ef4444;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: 6px;
+    transition: background-color 0.2s;
+}
+
+.btn-logout:hover {
+    background-color: #fef2f2;
+}
+
+/* =========================================================================
+   7. ФОРМА ДОБАВЛЕНИЯ ЗАДАЧИ (Компактная строка ввода)
+   ========================================================================= */
+.task-form {
+    display: flex;
+    flex-direction: column; /* Элементы выстраиваются вертикально (строка за строкой) */
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+/* Первая строка: Инпут на максимум, кнопка компактная */
+.form-row-main {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+}
+.form-row-main input {
+    flex: 1;
+    margin-bottom: 0; /* Убираем лишние отступы */
+}
+
+/* Вторая строка: Два селектора делят пространство поровну 50/50 */
+.form-row-params {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+}
+.form-row-params select {
+    flex: 1; /* Каждый селектор занимает ровно половину строки */
+    width: 50%;
+}
+
+
+.btn-add {
+    background-color: #4f46e5;
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    width: 48px;
+    font-size: 20px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-add:hover {
+    background-color: #4338ca;
+}
+
+/* =========================================================================
+   8. СТИЛИЗАЦИЯ КАРТОЧЕК ЗАДАЧ (Дерево: Задача -> Подзадачи)
+   ========================================================================= */
+.tasks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.task-item {
+    background: #fafafa;
+    border: 1.5px solid #e8e8e8;
+    border-radius: 12px;
+    padding: 16px;
+    transition: all 0.2s ease;
+}
+
+/* Цветовые маркеры приоритетов на левой границе карточки */
+.task-item.priority-high { border-left: 5px solid #ef4444; }   /* Красный */
+.task-item.priority-medium { border-left: 5px solid #f59e0b; } /* Желтый */
+.task-item.priority-low { border-left: 5px solid #10b981; }    /* Зеленый */
+
+.task-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.task-title-text {
+    font-size: 16px;
+    font-weight: 500;
+    color: #1a1a1a;
+    flex: 1;
+    cursor: pointer;
+}
+
+/* Эффект зачеркивания для выполненных дел */
+.task-item.done-true .task-title-text {
+    text-decoration: line-through;
+    color: #999999;
+}
+
+.btn-delete {
+    background: none;
+    border: none;
+    color: #cccccc;
+    font-size: 18px;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.btn-delete:hover {
+    color: #ef4444;
+}
+
+/* =========================================================================
+   9. ВЛОЖЕННЫЕ ЧЕК-ЛИСТЫ (Подзадачи / Списки покупок)
+   ========================================================================= */
+.subtasks-box {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed #e8e8e8;
+    padding-left: 8px;
+}
+
+.subtask-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 14px;
+    color: #4a4a4a;
+}
+
+.subtask-item input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
+}
+
+/* Форма быстрого добавления подзадачи внутри карточки */
+.subtask-form {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.subtask-form input {
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 6px;
+}
+
+.btn-sub-add {
+    background-color: #6366f1;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 0 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+/* Цвета для пунктов выпадающего списка */
+select option.p-high { color: #ef4444; font-weight: 500; }
+select option.p-medium { color: #f59e0b; font-weight: 500; }
+select option.p-low { color: #10b981; font-weight: 500; }
+
+/* Стильная круглая аватарка пользователя */
+.user-avatar {
+    width: 28px;
+    height: 28px;
+    background-color: #6366f1; /* Индиго */
+    color: #ffffff;
+    border-radius: 50%;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+/* Кнопка быстрого удаления подзадачи (крестик) */
+.btn-sub-delete {
+    background: none;
+    border: none;
+    color: #dddddd;
+    font-size: 14px;
+    cursor: pointer;
+    margin-left: auto; /* Прижимает крестик к правому краю */
+    transition: color 0.2s;
+}
+.btn-sub-delete:hover {
+    color: #ef4444;
+}
+
+/* Стили для всплывающего модального окна */
+.modal {
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.4); /* Полупрозрачный задний фон */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+.modal-content {
+    width: 100%;
+    max-width: 400px;
+    animation: slideDown 0.2s ease-out;
+}
+h3 {
+    font-size: 20px;
+    margin-bottom: 20px;
+    color: #1a1a1a;
+    text-align: center;
+}
+@keyframes slideDown {
+    from { transform: translateY(-20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* Красивые текстовые шильдики для приоритетов */
+.badge-priority {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+.badge-priority.high { background-color: #fef2f2; color: #ef4444; }   /* Мягкий красный */
+.badge-priority.medium { background-color: #fffbeb; color: #d97706; } /* Мягкий желтый */
+.badge-priority.low { background-color: #ecfdf5; color: #10b981; }    /* Мягкий зеленый */

@@ -40,13 +40,92 @@
         </div>
 
         <!-- БЛОК ЗАДАЧ (Скрыт по умолчанию до успешного логина) -->
-        <div id="app-block" class="card hidden">
-            <h2>Наши семейные задачи</h2>
-            <p>Вы успешно авторизованы! Здесь скоро будет список задач.</p>
-            <button id="logout-btn" class="btn btn-secondary">Выйти из аккаунта</button>
+               <!-- БЛОК ЗАДАЧ (Показывается после успешного логина) -->
+        <div id="app-block" class="card app-card hidden">
+            <div class="app-header">
+                <h2>Наши задачи</h2>
+                <button id="logout-btn" class="btn-logout">Выйти</button>
+            </div>
+            
+            <!-- ФОРМА СОЗДАНИЯ ЗАДАЧИ -->
+            <form id="task-form" class="task-form">
+                <!-- Строка 1: Ввод текста и кнопка добавления -->
+                <div class="form-row-main">
+                    <input type="text" id="task-title" required placeholder="Что нужно сделать семье?">
+                    <button type="submit" class="btn-add">+</button>
+                </div>
+                
+                <!-- Строка 2: Выбор параметров (Важность и Исполнитель) -->
+                <div class="form-row-params">
+                    <select id="task-priority" required>
+                        <option value="low" class="p-low">🟢 Низкий приоритет</option>
+                        <option value="medium" class="p-medium" selected>🟡 Средний приоритет</option>
+                        <option value="high" class="p-high">🔴 Высокий приоритет</option>
+                    </select>
+
+
+                    <select id="task-assigned" required>
+                        <!-- Сюда JavaScript вставит список членов семьи -->
+                    </select>
+                </div>
+            </form>
+
+            <!-- КОНТЕЙНЕР ДЛЯ ДИНАМИЧЕСКОГО СПИСКА ЗАДАЧ -->
+            <div id="tasks-container" class="tasks-list">
+                <!-- Сюда JavaScript будет вставлять задачи из базы -->
+            </div>
+        </div>
+
+
+    <script src="app.js"></script>
+
+    <!-- МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ЗАДАЧИ (Скрыто по умолчанию) -->
+    <div id="edit-modal" class="modal hidden">
+        <div class="card modal-content">
+            <h3>Редактирование задачи</h3>
+            <form id="edit-task-form">
+                <!-- Оставили скрытым только ID задачи, он нужен для PUT запроса -->
+                <input type="hidden" id="edit-task-id">
+                
+                <div class="form-group">
+                    <label>Название</label>
+                    <input type="text" id="edit-task-title" required>
+                </div>
+
+                <!-- ИСПРАВЛЕНО: Вместо скрытого инпута сделали честный выбор статуса -->
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label>Статус задачи</label>
+                    <select id="edit-task-done" required>
+                        <option value="false">⏳ В работе</option>
+                        <option value="true">✅ Выполнена</option>
+                    </select>
+                </div>
+                
+                <div class="form-row-params" style="margin-bottom: 20px;">
+                    <div>
+                        <label>Приоритет</label>
+                        <select id="edit-task-priority" required>
+                            <option value="low">🟢 Низкий</option>
+                            <option value="medium">🟡 Средний</option>
+                            <option value="high">🔴 Высокий</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Исполнитель</label>
+                        <select id="edit-task-assigned" required>
+                            <!-- Сюда JavaScript скопирует список членов семьи -->
+                        </select>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px;">
+                    <button type="submit" class="btn" style="background-color: #10b981;">Сохранить</button>
+                    <button type="button" id="edit-cancel-btn" class="btn" style="background-color: #9ca3af;">Отмена</button>
+                </div>
+            </form>
         </div>
     </div>
 
-    <script src="app.js"></script>
+
 </body>
 </html>

@@ -8,7 +8,7 @@ type TaskRepository interface {
 	Create(ctx context.Context, task *Task) error
 
 	// Получить задачу по ID. Возвращает указатель на задачу и ошибку.
-	GetByID(ctx context.Context, id int, userID int) (*Task, error)
+	GetByID(ctx context.Context, id int) (*Task, error)
 
 	// Получить все задачи. Возвращает слайс.
 	GetAll(ctx context.Context, userID int) ([]Task, error)
@@ -27,6 +27,8 @@ type TaskRepository interface {
 
 	// CreateSubtask создает подзадачу, привязанную к задаче
 	CreateSubtask(ctx context.Context, subtask *SubTask) error
+
+	GetAllUsers(ctx context.Context) ([]User, error)
 }
 
 // calcNextID — helper для корректного nextID после чтения из  JSON файла.
