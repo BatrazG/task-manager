@@ -85,6 +85,8 @@ func (h *Handler) Router() http.Handler {
 			r.Put("/{id}", h.updateTask)
 			r.Delete("/{id}", h.deleteTask)
 			r.Post("/{id}/subtasks", h.createSubTask)
+
+			r.Put("/subtasks/{sub_id}", h.updateSubTaskStatus) // PUT /api/v1/tasks/subtasks/{sub_id}
 		})
 	})
 
@@ -376,7 +378,7 @@ func (h *Handler) registerUser(w http.ResponseWriter, r *http.Request) {
 	// т.к. DTO передается непосредственно в метод Register
 	err := h.svc.Register(ctx, req)
 	if errors.Is(err, ErrUserAlreadyExists) {
-		appMiddleware.WriteError(w, r, http.StatusBadRequest, "bad_request", "Такой Email уже занят",
+		appMiddleware.WriteError(w, r, http.StatusBadRequest, "bad_request", "Такое имя уже занято",
 			nil)
 		return
 	}
@@ -520,4 +522,43 @@ func validationDetails(err error) any {
 		})
 	}
 	return out
+}
+
+func (h *Handler) updateSubTaskStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// 1. Считываем ID подзадачи из URL-параметров
+	subIDStr := chi.URLParam(r, "sub_id")
+	subID, err := strconv.Atoi(subIDStr)
+	if err != nil {
+		appMiddleware.WriteError(w, r, http.StatusBadRequest, "bad_request", "Invalid SubTask ID",
+			map[string]any{"sub_id": subIDStr})
+		return
+	}
+
+	// 2. Декодируем и валидируем входящий JSON статус
+	var req UpdateSubTaskStatusRequest
+	if err := decodeJSONStrict(r, &req); err != nil {
+		h.writeDecodeError(w, r, err)
+		return
+	}
+
+	// 3. Вызываем метод бизнес-логики в сервисе
+	err = h.svc.UpdateSubTaskStatus(ctx, subID, req.Done)
+	if errors.Is(err, ErrTaskNotFound) {
+		appMiddleware.WriteError(w, r, http.StatusNotFound, "not_found", "SubTask not found",
+			map[string]any{"sub_id": subID})
+		return
+	}
+	if err != nil {
+		if h.handleContextError(w, r, err) {
+			return
+		}
+		log.Printf("request_id=%s updateSubTaskStatus error: %v", appMiddleware.GetRequestID(ctx), err)
+		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to update subtask status", nil)
+		return
+	}
+
+	// 4. Отдаем успешный пустой ответ (или статус 204), подтверждая сохранение в Postgres
+	w.WriteHeader(http.StatusNoContent)
 }

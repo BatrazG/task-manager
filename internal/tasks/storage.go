@@ -243,11 +243,15 @@ func (ts *TaskStore) CreateUser(ctx context.Context, user *User) error {
 	return nil
 }
 
-// Ищет пользователя по email и возвращает заполненную структуру.
-func (ts *TaskStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+// Ищет пользователя по username и возвращает заполненную структуру.
+func (ts *TaskStore) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	return nil, nil
 }
 
 func (ts *TaskStore) GetAllUsers(ctx context.Context) ([]User, error) {
 	return nil, nil
+}
+
+func (ts *TaskStore) UpdateSubTaskStatus(ctx context.Context, subID int, done bool) error {
+	return nil
 }

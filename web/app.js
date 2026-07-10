@@ -12,6 +12,8 @@ const toggleLink = document.getElementById('toggle-link');
 const toggleText = document.getElementById('toggle-text');
 const inviteGroup = document.getElementById('invite-group');
 const logoutBtn = document.getElementById('logout-btn');
+const authError = document.getElementById('auth-error');
+
 
 // Элементы управления задачами
 const taskForm = document.getElementById('task-form');
@@ -51,16 +53,26 @@ toggleLink.addEventListener('click', (e) => {
 // =========================================================================
 authForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-
-    const email = document.getElementById('email').value;
-    const password = document.getElementById('password').value;
-    const inviteCode = document.getElementById('invite_code').value;
+    // Жестко считываем текст из инпута прямо перед сборкой объекта
+    const textUsername = document.getElementById('username').value.trim();
+    const textPassword = document.getElementById('password').value;
+    const textInviteCode = document.getElementById('invite_code').value;
 
     const endpoint = isLoginMode ? '/auth/login' : '/auth/register';
-    const payload = { email, password };
+    
+    // ПРЯМАЯ СБОРКА: Явно указываем ключи и переменные, чтобы избежать конфликта областей видимости
+    const payload = { 
+        username: textUsername, 
+        password: textPassword 
+    };
+    
     if (!isLoginMode) {
-        payload.invite_code = inviteCode;
+        payload.invite_code = textInviteCode;
     }
+
+    // ЛОГ ДЛЯ ПРОВЕРКИ: Теперь здесь гарантированно будет строка текста, а не HTML-тег!
+    console.log("Фронтенд отправляет ПРЯМОЙ Payload:", payload);
+
 
     try {
         const response = await fetch(`${API_URL}${endpoint}`, {
@@ -71,8 +83,10 @@ authForm.addEventListener('submit', async (e) => {
 
         const data = await response.json();
 
-        if (!response.ok) {
-            alert(`Ошибка: ${data.message || 'Что-то пошло не так'}`);
+         if (!response.ok) {
+            // Заменяем старый alert(`Ошибка: ${data.message}`);
+            authError.innerText = data.message || 'Неверное имя пользователя или пароль';
+            authError.classList.remove('hidden'); // Показываем ошибку на экране
             return;
         }
 
@@ -167,7 +181,7 @@ function renderTasks(tasks) {
             const foundUser = globalUsers.find(u => u.id === task.assigned_to);
             if (foundUser && foundUser.email) {
                 // Превращаем email в красивый псевдоним (например, "mama" из "mama@family.com")
-                assigneeName = foundUser.email.split('@')[0];
+                assigneeName = foundUser.username;
             } else {
                 assigneeName = `Член семьи №${task.assigned_to}`; // Подстраховка
             }
@@ -233,6 +247,8 @@ function renderTasks(tasks) {
 taskForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    authError.classList.add('hidden'); // Гасим прошлую ошибку перед новым запросом
+ 
     const title = taskTitleInput.value;
     const priority = taskPrioritySelect.value;
     const assignedTo = parseInt(taskAssignedSelect.value) || 0; // ИСПРАВЛЕНО: Считываем реальный ID
@@ -326,10 +342,38 @@ window.toggleTaskStatus = async function (taskId, currentStatus, title, priority
 };
 
 // Заглушка изменения статуса подзадачи (для демонстрации клика по пункту чек-листа)
-window.toggleSubTask = function (event, subId, currentStatus) {
-    alert(`Статус пункта №${subId} переключен локально! Полноценный роут PUT для подзадач вы сможете спроектировать на этапе редизайна.`);
-    loadTasks();
+// Функция изменения статуса пункта чек-листа (Выполнено / В работе)
+window.toggleSubTask = async function(event, subId, currentStatus) {
+    const token = localStorage.getItem('jwt_token');
+    if (!token) return;
+
+    // Инвертируем текущий статус: если был true, отправляем false, и наоборот
+    const payload = {
+        done: !currentStatus
+    };
+
+    try {
+        // Делаем PUT запрос строго по нашему новому REST-контракту в Go
+        const response = await fetch(`${API_URL}/tasks/subtasks/${subId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            // Успешно обновили статус в Postgres — принудительно обновляем список на экране
+            loadTasks(); 
+        } else {
+            console.error("Сервер отказал в обновлении статуса подзадачи. Код:", response.status);
+        }
+    } catch (err) {
+        console.error('Сетевая ошибка обновления подзадачи:', err);
+    }
 };
+
 
 // Удаление задачи
 window.deleteTask = async function (taskId) {
@@ -372,12 +416,10 @@ async function loadUsers() {
 
             taskAssignedSelect.innerHTML = '<option value="0">Назначить на себя</option>';
 
-                        users.forEach(user => {
+            users.forEach(user => {
                 const option = document.createElement('option');
                 option.value = user.id;
                 
-                // Извлекаем псевдоним из почты (например, "pavel" из "pavel@family.com")
-                const nickname = user.email.split('@')[0];
                 option.innerText = `👤 ${nickname}`;
                 taskAssignedSelect.appendChild(option);
             });

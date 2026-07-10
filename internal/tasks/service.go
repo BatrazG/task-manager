@@ -94,10 +94,10 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) error {
 		return errors.New("invalid invite code") // или кастомная ошибка
 	}
 
-	_, err := s.repo.GetUserByEmail(ctx, req.Email)
+	_, err := s.repo.GetUserByUsername(ctx, req.Username)
 
 	if err == nil {
-		// Пользователь нашелся без ошибок -> email точно занят!
+		// Пользователь нашелся без ошибок -> username точно занят!
 		return ErrUserAlreadyExists
 	}
 	// Если ошибка НЕ связана с тем, что юзер не найден — значит это фатальная ошибка БД
@@ -112,7 +112,7 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) error {
 
 	hash := string(hashedPassword)
 	u := User{
-		Email:        req.Email,
+		Username:     req.Username,
 		PasswordHash: hash,
 	}
 	err = s.repo.CreateUser(ctx, &u)
@@ -127,7 +127,8 @@ func (s *Service) Login(ctx context.Context, req LoginRequest) (string, error) {
 		return "", err
 	}
 
-	u, err := s.repo.GetUserByEmail(ctx, req.Email)
+	u, err := s.repo.GetUserByUsername(ctx, req.Username)
+
 	if errors.Is(err, ErrUserNotFound) {
 		return "", ErrInvalidCredentials
 	}
@@ -163,4 +164,12 @@ func (s *Service) GetAllUsers(ctx context.Context) ([]User, error) {
 		return nil, err
 	}
 	return s.repo.GetAllUsers(ctx)
+}
+
+// UpdateSubTaskStatus передает команду обновления статуса пункта чек-листа в базу данных.
+func (s *Service) UpdateSubTaskStatus(ctx context.Context, subID int, done bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return s.repo.UpdateSubTaskStatus(ctx, subID, done)
 }

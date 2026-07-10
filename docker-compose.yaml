@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   # ==========================================
   # СЕРВИС 1: Наша база данных PostgreSQL
@@ -15,6 +17,7 @@ services:
       - pgdata:/var/lib/postgresql/data # Заначка для данных (чтобы при перезапуске контейнера база не стиралась)
     networks:
       - family_network
+    restart: unless-stopped
 
   # ==========================================
   # СЕРВИС 2: Наш Go бэкенд-сервер
@@ -41,6 +44,21 @@ services:
       - postgres_db # Сервер не запустится, пока не поднимется контейнер с базой
     networks:
       - family_network
+    restart: unless-stopped
+
+  # ==========================================
+  # СЕРВИС 3: Наш Nginx фронтенд-сервер (Новый узел)
+  # ==========================================
+  frontend:
+    build:
+      context: ./web        # Указываем Docker собирать образ из папки web
+      dockerfile: Dockerfile # Берем Dockerfile из папки web
+    container_name: family_tasks_frontend
+    ports:
+      - "3000:80"           # Пробрасываем сайт на порт 3000 вашего компьютера
+    networks:
+      - family_network      # Подключаем фронтенд к общей семейной сети контейнеров
+    restart: unless-stopped
 
 # Объявляем виртуальные ресурсы, которые используются сервисами выше
 volumes:
