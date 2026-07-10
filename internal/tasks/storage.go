@@ -150,7 +150,7 @@ func (ts *TaskStore) GetAll(ctx context.Context, userrID int) ([]Task, error) {
 }
 
 // Ищет и возвращает задачу по ID
-func (ts *TaskStore) GetByID(ctx context.Context, id int, userID int) (*Task, error) {
+func (ts *TaskStore) GetByID(ctx context.Context, id int) (*Task, error) {
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -245,5 +245,9 @@ func (ts *TaskStore) CreateUser(ctx context.Context, user *User) error {
 
 // Ищет пользователя по email и возвращает заполненную структуру.
 func (ts *TaskStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	return nil, nil
+}
+
+func (ts *TaskStore) GetAllUsers(ctx context.Context) ([]User, error) {
 	return nil, nil
 }

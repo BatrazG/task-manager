@@ -20,3 +20,14 @@ CREATE TABLE IF NOT EXISTS tasks (
     -- Констрейнт (связь) для Исполнителя задачи
     CONSTRAINT fk_task_assignee FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS subtasks (
+    id SERIAL PRIMARY KEY,
+    task_id INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    title VARCHAR(100) NOT NULL,
+    done BOOLEAN NOT NULL DEFAULT false,
+    
+    -- Указываем, что колонка task_id ссылается на id в таблице tasks
+    CONSTRAINT fk_task_subtask FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+

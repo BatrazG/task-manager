@@ -33,16 +33,19 @@ func (r *PostgresRepository) Create(ctx context.Context, task *Task) error {
 }
 
 // 2. Получить задачу по ID. Возвращает указатель на задачу и ошибку.
-func (r *PostgresRepository) GetByID(ctx context.Context, id int, userID int) (*Task, error) {
+func (r *PostgresRepository) GetByID(ctx context.Context, id int) (*Task, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	query := `SELECT t.id, t.user_id, t.assigned_to, t.title, t.done, t.priority, s.id, s.task_id, s.title, s.done
-	FROM   tasks t
-	LEFT JOIN subtasks s ON t.ID = s.tasks_id
-	WHERE t.id = $1 AND (t.user_id = $2 OR t.assigned_to = $2)`
-	rows, err := r.db.QueryContext(ctx, query, id, userID)
+	query := `
+		SELECT t.id, t.user_id, t.assigned_to, t.title, t.done, t.priority,
+		       s.id, s.task_id, s.title, s.done
+		FROM tasks t
+		LEFT JOIN subtasks s ON t.id = s.task_id
+		WHERE t.id = $1`
+
+	rows, err := r.db.QueryContext(ctx, query, id)
 	if err != nil {
 		return nil, err
 	}
@@ -108,24 +111,65 @@ func (r *PostgresRepository) GetAll(ctx context.Context, userID int) ([]Task, er
 		return nil, err
 	}
 
-	rows, err := r.db.QueryContext(ctx, "SELECT id, user_id, assigned_to, title, done, priority FROM tasks WHERE user_id = $1 OR assigned_to = $1", userID)
+	// Выбираем задачи семьи вместе со всеми их подзадачами через LEFT JOIN
+	query := `
+		SELECT t.id, t.user_id, t.assigned_to, t.title, t.done, t.priority,
+		       s.id, s.task_id, s.title, s.done
+		FROM tasks t
+		LEFT JOIN subtasks s ON t.id = s.task_id
+		ORDER BY t.id DESC`
+
+	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var tasks []Task
+	// Используем карту (map), чтобы склеивать строки подзадач с нужной задачей по её ID
+	taskMap := make(map[int]*Task)
+	var taskOrder []int // Чтобы сохранить правильный порядок сортировки задач
+
 	for rows.Next() {
 		var t Task
-		err := rows.Scan(&t.ID, &t.UserID, &t.AssignedTo, &t.Title, &t.Done, &t.Priority)
+		var sID, sTaskID sql.NullInt64
+		var sTitle sql.NullString
+		var sDone sql.NullBool
+
+		err := rows.Scan(
+			&t.ID, &t.UserID, &t.AssignedTo, &t.Title, &t.Done, &t.Priority,
+			&sID, &sTaskID, &sTitle, &sDone,
+		)
 		if err != nil {
 			return nil, err
 		}
-		tasks = append(tasks, t)
+
+		// Если такой задачи еще нет в карте, добавляем её
+		if _, exists := taskMap[t.ID]; !exists {
+			t.SubTasks = make([]SubTask, 0) // Инициализируем слайс, чтобы в JSON не было null
+			taskMap[t.ID] = &t
+			taskOrder = append(taskOrder, t.ID)
+		}
+
+		// Если в этой строке прилетела реальная подзадача, добавляем её к родителю
+		if sID.Valid {
+			sub := SubTask{
+				ID:     int(sID.Int64),
+				TaskID: int(sTaskID.Int64),
+				Title:  sTitle.String,
+				Done:   sDone.Bool,
+			}
+			taskMap[t.ID].SubTasks = append(taskMap[t.ID].SubTasks, sub)
+		}
 	}
 
 	if err = rows.Err(); err != nil {
 		return nil, err
+	}
+
+	// Переводим нашу карту обратно в плоский слайс для отправки фронтенду
+	tasks := make([]Task, 0, len(taskMap))
+	for _, id := range taskOrder {
+		tasks = append(tasks, *taskMap[id])
 	}
 
 	return tasks, nil
@@ -137,8 +181,8 @@ func (r *PostgresRepository) Update(ctx context.Context, task *Task, userID int)
 		return err
 	}
 
-	query := "UPDATE tasks SET title=$1, done=$2, priority=$3 WHERE id = $4 AND (user_id = $5 OR assigned_to = $5)"
-	result, err := r.db.ExecContext(ctx, query, task.Title, task.Done, task.Priority, task.ID, userID)
+	query := "UPDATE tasks SET title=$1, done=$2, priority=$3, assigned_to=$4 WHERE id = $5"
+	result, err := r.db.ExecContext(ctx, query, task.Title, task.Done, task.Priority, task.AssignedTo, task.ID)
 	if err != nil {
 		return err
 	}
@@ -156,8 +200,8 @@ func (r *PostgresRepository) Delete(ctx context.Context, id int, userID int) err
 		return err
 	}
 
-	query := "DELETE FROM tasks WHERE id = $1 AND (user_id = $2 OR assigned_to = $2)"
-	result, err := r.db.ExecContext(ctx, query, id, userID)
+	query := "DELETE FROM tasks WHERE id = $1"
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return err
 	}
@@ -211,4 +255,35 @@ func (r *PostgresRepository) CreateSubtask(ctx context.Context, subtask *SubTask
 	}
 	return nil
 
+}
+
+// GetAllUsers возвращает список всех зарегистрированных пользователей системы.
+func (r *PostgresRepository) GetAllUsers(ctx context.Context) ([]User, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// Запрашиваем только ID и Email, хэши паролей фронтенду знать нельзя
+	rows, err := r.db.QueryContext(ctx, "SELECT id, email FROM users ORDER BY id ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		// Сканируем только два поля
+		err := rows.Scan(&u.ID, &u.Email)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return users, nil
 }

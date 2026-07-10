@@ -77,6 +77,8 @@ func (h *Handler) Router() http.Handler {
 		r.Route("/tasks", func(r chi.Router) {
 			r.Use(appMiddleware.AuthMiddleware) // <--- ИСПРАВИЛИ ПРЕФИКС НА appMiddleware!
 
+			r.Get("/users", h.getAllUsers)
+
 			r.Get("/", h.getAllTasks)
 			r.Post("/", h.createTask)
 			r.Get("/{id}", h.getTaskByID)
@@ -234,12 +236,15 @@ func (h *Handler) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.AssignedTo == 0 {
+		req.AssignedTo = userID // или task.AssignedTo = userID в зависимости от вашей структуры переменных
+	}
 	incoming := Task{
-		ID:       id,
-		UserID:   userID,
-		Title:    req.Title,
-		Done:     req.Done,
-		Priority: req.Priority,
+		ID:         id,
+		Title:      req.Title,
+		Done:       req.Done,
+		Priority:   req.Priority,
+		AssignedTo: req.AssignedTo,
 	}
 
 	err = h.svc.UpdateTask(ctx, &incoming, userID)
@@ -425,6 +430,23 @@ func (h *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	tokenData := map[string]string{"token": token}
 	_ = json.NewEncoder(w).Encode(tokenData)
+}
+
+func (h *Handler) getAllUsers(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	users, err := h.svc.GetAllUsers(ctx)
+	if err != nil {
+		if h.handleContextError(w, r, err) {
+			return
+		}
+		log.Printf("request_id=%s getAllUsers error: %v", appMiddleware.GetRequestID(ctx), err)
+		appMiddleware.WriteError(w, r, http.StatusInternalServerError, "internal", "Failed to load users", nil)
+		return
+	}
+
+	// Отдаем массив пользователей фронтенду
+	_ = json.NewEncoder(w).Encode(users)
 }
 
 // handleContextError делает понятную обработку ошибок отмены/таймаута.

@@ -41,9 +41,10 @@ type CreateTaskRequest struct {
 
 // Отдельный DTO для PUT -- фиксируем контракт входных данных + включаем валидацию.
 type UpdateTaskRequest struct {
-	Title    string `json:"title" validate:"required,max=100"`
-	Done     bool   `json:"done"`
-	Priority string `json:"priority" validate:"required,oneof=low medium high"`
+	Title      string `json:"title" validate:"required,max=100"`
+	Done       bool   `json:"done"`
+	Priority   string `json:"priority" validate:"required,oneof=low medium high"`
+	AssignedTo int    `json:"assigned_to"`
 }
 
 type CreateSubTaskRequest struct {
