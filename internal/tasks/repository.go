@@ -22,13 +22,15 @@ type TaskRepository interface {
 	// Создать нового пользователя
 	CreateUser(ctx context.Context, user *User) error
 
-	// Ищет пользователя по email и возвращает заполненную структуру.
-	GetUserByEmail(ctx context.Context, email string) (*User, error)
+	// Ищет пользователя по Username и возвращает заполненную структуру.
+	GetUserByUsername(ctx context.Context, username string) (*User, error)
 
 	// CreateSubtask создает подзадачу, привязанную к задаче
 	CreateSubtask(ctx context.Context, subtask *SubTask) error
 
 	GetAllUsers(ctx context.Context) ([]User, error)
+
+	UpdateSubTaskStatus(ctx context.Context, subID int, done bool) error
 }
 
 // calcNextID — helper для корректного nextID после чтения из  JSON файла.

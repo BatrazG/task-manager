@@ -51,6 +51,10 @@ type CreateSubTaskRequest struct {
 	Title string `json:"title" validate:"required,max=100"`
 }
 
+type UpdateSubTaskStatusRequest struct {
+	Done bool `json:"done"`
+}
+
 // Делать разные DTO для разных эндпоинтов - правильная практика
 // Для обновления задачи можно не все поля сделать обязательными
 // Не усложняем в рамках учебного проекта, в реальном стоило бы пересмотреть

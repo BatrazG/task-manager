@@ -218,26 +218,28 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, user *User) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	query := "INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id"
-	return r.db.QueryRowContext(ctx, query, user.Email, user.PasswordHash).Scan(&user.ID)
+	query := "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id"
+	return r.db.QueryRowContext(ctx, query, user.Username, user.PasswordHash).Scan(&user.ID)
 }
 
-// Найти пользователя по email
-func (r *PostgresRepository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+// Найти пользователя по Username
+func (r *PostgresRepository) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	var u User
-	query := "SELECT id, email, password_hash FROM users WHERE email = $1"
-	err := r.db.QueryRowContext(ctx, query, email).Scan(&u.ID, &u.Email, &u.PasswordHash)
+	// ИСПРАВЛЕНО: выбираем колонку username по фильтру username = $1
+	query := "SELECT id, username, password_hash FROM users WHERE username = $1"
 
+	var u User
+	err := r.db.QueryRowContext(ctx, query, username).Scan(&u.ID, &u.Username, &u.PasswordHash)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrUserNotFound
+			return nil, ErrUserNotFound // Убедитесь, что эта ошибка объявлена в вашем коде
 		}
 		return nil, err
 	}
+
 	return &u, nil
 }
 
@@ -263,8 +265,8 @@ func (r *PostgresRepository) GetAllUsers(ctx context.Context) ([]User, error) {
 		return nil, err
 	}
 
-	// Запрашиваем только ID и Email, хэши паролей фронтенду знать нельзя
-	rows, err := r.db.QueryContext(ctx, "SELECT id, email FROM users ORDER BY id ASC")
+	// Запрашиваем только ID и Username, хэши паролей фронтенду знать нельзя
+	rows, err := r.db.QueryContext(ctx, "SELECT id, username FROM users ORDER BY id ASC")
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +276,7 @@ func (r *PostgresRepository) GetAllUsers(ctx context.Context) ([]User, error) {
 	for rows.Next() {
 		var u User
 		// Сканируем только два поля
-		err := rows.Scan(&u.ID, &u.Email)
+		err := rows.Scan(&u.ID, &u.Username)
 		if err != nil {
 			return nil, err
 		}
@@ -286,4 +288,29 @@ func (r *PostgresRepository) GetAllUsers(ctx context.Context) ([]User, error) {
 	}
 
 	return users, nil
+}
+
+// UpdateSubTaskStatus обновляет флаг выполнения (done) у конкретной подзадачи.
+func (r *PostgresRepository) UpdateSubTaskStatus(ctx context.Context, subID int, done bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Простой и строгий SQL-запрос обновления одной колонки
+	query := "UPDATE subtasks SET done = $1 WHERE id = $2"
+
+	result, err := r.db.ExecContext(ctx, query, done, subID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return ErrTaskNotFound // Используем нашу стандартную ошибку отсутствия записи
+	}
+
+	return nil
 }
